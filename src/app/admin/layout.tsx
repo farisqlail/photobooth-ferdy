@@ -14,6 +14,7 @@ const navItems = [
   { label: "Sessions", icon: Camera, href: "/admin" },
   { label: "Guests", icon: Users, href: "/admin" },
   { label: "Analytics", icon: BarChart3, href: "/admin" },
+  { label: "Settings", icon: Settings, href: "/admin/settings" },
 ];
 
 export default function AdminLayout({
@@ -41,9 +42,11 @@ export default function AdminLayout({
               </Link>
             ))}
           </nav>
-          <Button variant="secondary" size="sm">
-            <Settings className="h-4 w-4" />
-            Settings
+          <Button asChild variant="secondary" size="sm">
+            <Link href="/admin/settings">
+              <Settings className="h-4 w-4" />
+              Settings
+            </Link>
           </Button>
         </aside>
         <div className="flex flex-1 flex-col">
