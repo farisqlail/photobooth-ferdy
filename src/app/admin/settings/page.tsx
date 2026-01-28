@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { FolderUp, RefreshCcw, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState, useRef } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { FolderUp, Plus, RefreshCcw, Trash2, X, Pencil } from "lucide-react";
 import Image from "next/image";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/client";
 import { Button } from "../../../components/ui/button";
@@ -22,11 +23,24 @@ type PricingSettings = {
   per_print_price: number;
 };
 
+type Slot = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 type Template = {
   id: string;
   name: string;
   file_path: string;
   url: string;
+  photo_x: number;
+  photo_y: number;
+  photo_width: number;
+  photo_height: number;
+  slots_config?: Slot[];
 };
 
 export default function AdminSettingsPage() {
@@ -43,6 +57,73 @@ export default function AdminSettingsPage() {
   const [previewSize, setPreviewSize] = useState<{ width: number; height: number } | null>(
     null
   );
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [templateName, setTemplateName] = useState("");
+  const [resizing, setResizing] = useState<{
+    id: string;
+    handle: "nw" | "ne" | "sw" | "se";
+    startX: number;
+    startY: number;
+    startW: number;
+    startH: number;
+    startSlotX: number;
+    startSlotY: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width);
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, [previewUrl, previewSize]); // Re-observe when preview changes/mounts
+
+  const scale = previewSize && containerWidth ? containerWidth / previewSize.width : 1;
+
+  useEffect(() => {
+    if (!resizing) return;
+    const handleMove = (e: MouseEvent) => {
+      const dx = (e.clientX - resizing.startX) / scale;
+      const dy = (e.clientY - resizing.startY) / scale;
+
+      setSlots((prev) =>
+        prev.map((slot) => {
+          if (slot.id !== resizing.id) return slot;
+          let { x, y, width, height } = slot;
+
+          if (resizing.handle.includes("e")) width = Math.max(10, resizing.startW + dx);
+          if (resizing.handle.includes("s")) height = Math.max(10, resizing.startH + dy);
+          if (resizing.handle.includes("w")) {
+            const newW = Math.max(10, resizing.startW - dx);
+            x = resizing.startSlotX + (resizing.startW - newW);
+            width = newW;
+          }
+          if (resizing.handle.includes("n")) {
+            const newH = Math.max(10, resizing.startH - dy);
+            y = resizing.startSlotY + (resizing.startH - newH);
+            height = newH;
+          }
+
+          return { ...slot, width: Math.round(width), height: Math.round(height), x: Math.round(x), y: Math.round(y) };
+        })
+      );
+    };
+    const handleUp = () => setResizing(null);
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+    };
+  }, [resizing, scale]);
+
   const [loading, setLoading] = useState(true);
   const [supabaseState] = useState(() => {
     try {
@@ -93,17 +174,28 @@ export default function AdminSettingsPage() {
     }
     const { data } = await supabase
       .from("templates")
-      .select("id,name,file_path,created_at")
+      .select("id,name,file_path,created_at,photo_x,photo_y,photo_width,photo_height,slots_config")
       .order("created_at", { ascending: false });
     const mapped =
       (await Promise.all(
         (data ?? []).map(async (template) => {
+          const slots_config = template.slots_config
+            ? typeof template.slots_config === "string"
+              ? JSON.parse(template.slots_config)
+              : template.slots_config
+            : undefined;
+
           if (template.file_path.startsWith("http")) {
             return {
               id: template.id,
               name: template.name,
               file_path: template.file_path,
               url: template.file_path,
+              photo_x: template.photo_x,
+              photo_y: template.photo_y,
+              photo_width: template.photo_width,
+              photo_height: template.photo_height,
+              slots_config,
             };
           }
           const { data: signedData } = await supabase.storage
@@ -114,6 +206,11 @@ export default function AdminSettingsPage() {
             name: template.name,
             file_path: template.file_path,
             url: signedData?.signedUrl ?? "",
+            photo_x: template.photo_x,
+            photo_y: template.photo_y,
+            photo_width: template.photo_width,
+            photo_height: template.photo_height,
+            slots_config,
           };
         })
       )) ?? [];
@@ -207,30 +304,84 @@ export default function AdminSettingsPage() {
     showToast({ variant: "success", message: "Harga berhasil disimpan." });
   };
 
-  const uploadTemplate = async (file: File) => {
+  const saveTemplate = async () => {
+    if (!editingTemplateId && !selectedFile) {
+      return;
+    }
     setUploading(true);
     const formData = new FormData();
-    formData.append("file", file);
-    formData.append("name", file.name);
+    if (selectedFile) {
+      formData.append("file", selectedFile);
+    }
+    formData.append("name", templateName || (selectedFile ? selectedFile.name : "Template"));
+    formData.append("slots_config", JSON.stringify(slots));
+    // Backward compatibility
+    const first = slots[0] || { x: 0, y: 0, width: 0, height: 0 };
+    formData.append("photo_x", String(first.x));
+    formData.append("photo_y", String(first.y));
+    formData.append("photo_width", String(first.width));
+    formData.append("photo_height", String(first.height));
+
+    if (editingTemplateId) {
+      formData.append("id", editingTemplateId);
+    }
+
     const response = await fetch("/api/admin/templates", {
-      method: "POST",
+      method: editingTemplateId ? "PUT" : "POST",
       body: formData,
     });
     if (!response.ok) {
       const data = await response.json().catch(() => null);
       showToast({
         variant: "error",
-        message: data?.message ?? "Gagal upload template.",
+        message: data?.message ?? (editingTemplateId ? "Gagal update template." : "Gagal upload template."),
       });
       setUploading(false);
       return;
     }
     await loadTemplates();
-    showToast({ variant: "success", message: "Template berhasil diunggah." });
+    showToast({ variant: "success", message: editingTemplateId ? "Template berhasil diperbarui." : "Template berhasil diunggah." });
+    cancelEdit();
+    setUploading(false);
+  };
+
+  const startEdit = (template: Template) => {
+    setEditingTemplateId(template.id);
+    setTemplateName(template.name);
+    setPreviewUrl(template.url);
+    
+    // Fallback for templates without slots_config (legacy support)
+    let initialSlots = template.slots_config || [];
+    if (initialSlots.length === 0 && (template.photo_width > 0 || template.photo_height > 0)) {
+      initialSlots = [{
+        id: crypto.randomUUID(),
+        x: template.photo_x || 0,
+        y: template.photo_y || 0,
+        width: template.photo_width || 500,
+        height: template.photo_height || 500,
+      }];
+    }
+    setSlots(initialSlots);
+    
+    const image = new window.Image();
+    image.onload = () => {
+      setPreviewSize({
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      });
+    };
+    image.src = template.url;
+    
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => {
+    setEditingTemplateId(null);
+    setTemplateName("");
     setSelectedFile(null);
     setPreviewUrl(null);
     setPreviewSize(null);
-    setUploading(false);
+    setSlots([]);
   };
 
   const deleteTemplate = async (template: Template) => {
@@ -343,10 +494,10 @@ export default function AdminSettingsPage() {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-3">
-            <Button asChild>
+            <Button asChild variant={editingTemplateId ? "outline" : "default"}>
               <label className="flex cursor-pointer items-center gap-2">
                 <FolderUp className="h-4 w-4" />
-                Pilih Template
+                {editingTemplateId ? "Ganti File" : "Pilih Template"}
                 <input
                   type="file"
                   accept="image/png"
@@ -358,12 +509,33 @@ export default function AdminSettingsPage() {
                       const objectUrl = URL.createObjectURL(file);
                       setSelectedFile(file);
                       setPreviewUrl(objectUrl);
+                      if (!editingTemplateId) {
+                        setTemplateName(file.name.replace(/\.[^/.]+$/, ""));
+                      }
                       const image = new window.Image();
                       image.onload = () => {
                         setPreviewSize({
                           width: image.naturalWidth,
                           height: image.naturalHeight,
                         });
+                        // Only reset slots if not editing, or maybe we should always reset on new file?
+                        // Let's reset if not editing. If editing, we might want to keep slots if dimensions match?
+                        // For simplicity, if new file uploaded, let's reset slots to be safe, or user can adjust.
+                        // But if user is just changing background image of same size, they might want to keep slots.
+                        // Let's keep slots if editing, unless they are empty.
+                        if (!editingTemplateId) {
+                            const defaultW = 500;
+                            const defaultH = 500;
+                            setSlots([
+                            {
+                                id: crypto.randomUUID(),
+                                x: Math.round((image.naturalWidth - defaultW) / 2),
+                                y: Math.round((image.naturalHeight - defaultH) / 2),
+                                width: defaultW,
+                                height: defaultH,
+                            },
+                            ]);
+                        }
                       };
                       image.onerror = () => {
                         setPreviewSize(null);
@@ -374,26 +546,28 @@ export default function AdminSettingsPage() {
                 />
               </label>
             </Button>
+            
+            {(previewUrl || editingTemplateId) && (
+               <Input 
+                 placeholder="Nama Template" 
+                 value={templateName} 
+                 onChange={e => setTemplateName(e.target.value)}
+                 className="w-48"
+               />
+            )}
+
             <Button
               variant="secondary"
-              disabled={!selectedFile || uploading}
-              onClick={() => {
-                if (selectedFile) {
-                  uploadTemplate(selectedFile);
-                }
-              }}
+              disabled={(!selectedFile && !editingTemplateId) || uploading}
+              onClick={saveTemplate}
             >
-              Upload Sekarang
+              {editingTemplateId ? "Simpan Perubahan" : "Upload Sekarang"}
             </Button>
-            {selectedFile && (
+            {(selectedFile || editingTemplateId) && (
               <Button
                 variant="ghost"
                 disabled={uploading}
-                onClick={() => {
-                  setSelectedFile(null);
-                  setPreviewUrl(null);
-                  setPreviewSize(null);
-                }}
+                onClick={cancelEdit}
               >
                 Batal
               </Button>
@@ -403,26 +577,207 @@ export default function AdminSettingsPage() {
             )}
           </div>
           {previewUrl && previewSize && (
-            <Card className="w-fit max-w-full">
-              <CardContent className="flex flex-col gap-3 p-4">
-                <div className="overflow-hidden rounded-xl border border-border bg-muted p-2">
-                  <Image
-                    src={previewUrl}
-                    alt={selectedFile?.name ?? "Preview"}
-                    width={previewSize.width}
-                    height={previewSize.height}
-                    unoptimized
-                    className="h-auto w-auto max-w-full object-contain"
-                  />
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-semibold">Preview Template</span>
-                  <span className="text-muted-foreground">
-                    {selectedFile?.name ?? "template.png"}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+              <Card className="overflow-hidden">
+                <CardContent className="p-4">
+                  <div 
+                    ref={containerRef}
+                    className="relative w-full overflow-hidden rounded-xl border border-border bg-muted/50"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={previewUrl}
+                      alt="Template Preview"
+                      className="relative z-0 h-auto w-full pointer-events-none select-none"
+                    />
+                    
+                    {slots.map((slot, index) => (
+                      <motion.div
+                        key={slot.id}
+                        drag
+                        dragMomentum={false}
+                        onDragEnd={(_, info) => {
+                          const newX = Math.round(slot.x + info.offset.x / scale);
+                          const newY = Math.round(slot.y + info.offset.y / scale);
+                          setSlots((prev) =>
+                            prev.map((s) => (s.id === slot.id ? { ...s, x: newX, y: newY } : s))
+                          );
+                        }}
+                        onMouseDown={() => setSelectedSlotId(slot.id)}
+                        className={`absolute border-2 ${
+                          selectedSlotId === slot.id ? "border-primary z-20" : "border-primary/50 z-10"
+                        } bg-primary/20 group`}
+                        style={{
+                          left: slot.x * scale,
+                          top: slot.y * scale,
+                          width: slot.width * scale,
+                          height: slot.height * scale,
+                          cursor: "move",
+                        }}
+                      >
+                        <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-primary opacity-50 select-none">
+                          #{index + 1}
+                        </div>
+                        
+                        {/* Resize Handles */}
+                        {(["nw", "ne", "sw", "se"] as const).map((handle) => (
+                          <div
+                            key={handle}
+                            className={`absolute h-2 w-2 bg-primary border border-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity ${
+                              handle.includes("n") ? "-top-1" : "-bottom-1"
+                            } ${handle.includes("w") ? "-left-1" : "-right-1"} cursor-${handle}-resize`}
+                            onMouseDown={(e) => {
+                              e.stopPropagation(); // Prevent drag start
+                              setResizing({
+                                id: slot.id,
+                                handle,
+                                startX: e.clientX,
+                                startY: e.clientY,
+                                startW: slot.width,
+                                startH: slot.height,
+                                startSlotX: slot.x,
+                                startSlotY: slot.y,
+                              });
+                            }}
+                          />
+                        ))}
+                      </motion.div>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-xs text-muted-foreground text-center">
+                    Drag kotak untuk memindahkan. Tarik sudut untuk mengubah ukuran.
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-base">Konfigurasi Foto</CardTitle>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const defaultW = 500;
+                      const defaultH = 500;
+                      let startX = 50;
+                      let startY = 50;
+
+                      if (previewSize) {
+                        startX = Math.round((previewSize.width - defaultW) / 2);
+                        startY = Math.round((previewSize.height - defaultH) / 2);
+                      }
+
+                      setSlots((prev) => [
+                        ...prev,
+                        {
+                          id: crypto.randomUUID(),
+                          x: startX,
+                          y: startY,
+                          width: defaultW,
+                          height: defaultH,
+                        },
+                      ]);
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Tambah
+                  </Button>
+                </CardHeader>
+                <CardContent className="flex flex-col gap-4 max-h-[500px] overflow-y-auto">
+                  {slots.length === 0 && (
+                    <div className="text-sm text-muted-foreground text-center py-4">
+                      Belum ada area foto. Tambahkan area foto baru.
+                    </div>
+                  )}
+                  {slots.map((slot, index) => (
+                    <div
+                      key={slot.id}
+                      className={`rounded-lg border p-3 ${
+                        selectedSlotId === slot.id ? "border-primary bg-primary/5" : "border-border"
+                      }`}
+                      onClick={() => setSelectedSlotId(slot.id)}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">Foto #{index + 1}</span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6 text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSlots((prev) => prev.filter((s) => s.id !== slot.id));
+                          }}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="space-y-1">
+                          <span className="text-[10px] uppercase text-muted-foreground">X</span>
+                          <Input
+                            type="number"
+                            className="h-7 text-xs"
+                            value={slot.x}
+                            onChange={(e) =>
+                              setSlots((prev) =>
+                                prev.map((s) =>
+                                  s.id === slot.id ? { ...s, x: Number(e.target.value) } : s
+                                )
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[10px] uppercase text-muted-foreground">Y</span>
+                          <Input
+                            type="number"
+                            className="h-7 text-xs"
+                            value={slot.y}
+                            onChange={(e) =>
+                              setSlots((prev) =>
+                                prev.map((s) =>
+                                  s.id === slot.id ? { ...s, y: Number(e.target.value) } : s
+                                )
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[10px] uppercase text-muted-foreground">W</span>
+                          <Input
+                            type="number"
+                            className="h-7 text-xs"
+                            value={slot.width}
+                            onChange={(e) =>
+                              setSlots((prev) =>
+                                prev.map((s) =>
+                                  s.id === slot.id ? { ...s, width: Number(e.target.value) } : s
+                                )
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[10px] uppercase text-muted-foreground">H</span>
+                          <Input
+                            type="number"
+                            className="h-7 text-xs"
+                            value={slot.height}
+                            onChange={(e) =>
+                              setSlots((prev) =>
+                                prev.map((s) =>
+                                  s.id === slot.id ? { ...s, height: Number(e.target.value) } : s
+                                )
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
           )}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {templates.length === 0 && (
@@ -445,14 +800,23 @@ export default function AdminSettingsPage() {
                     />
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-semibold">{template.name}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => deleteTemplate(template)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <span className="text-sm font-semibold truncate flex-1">{template.name}</span>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => startEdit(template)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => deleteTemplate(template)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

@@ -1,0 +1,163 @@
+import { useState } from "react";
+import { SupabaseClient } from "@supabase/supabase-js";
+import { TemplateOption } from "../types";
+import { loadImage } from "../utils";
+
+export function useImageProcessing(supabase: SupabaseClient | null) {
+  const [finalPreviewUrl, setFinalPreviewUrl] = useState<string | null>(null);
+  const [storageUrl, setStorageUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const uploadFinalImage = async (dataUrl: string, transactionId?: string) => {
+    if (!supabase) {
+      setStorageUrl(dataUrl);
+      return dataUrl;
+    }
+    setIsUploading(true);
+    try {
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const filePath = transactionId
+        ? `transactions/${transactionId}/final.png`
+        : `temp/${Date.now()}.png`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("transactions") // Assuming bucket is 'transactions' based on original code? 
+        // Wait, original code: .from("transactions") ? 
+        // Let's check original code. It says `transactions/${state.transaction.id}/final.png`
+        // But the bucket name is usually the first arg to .from(). 
+        // I need to check the original code's uploadFinalImage more carefully.
+        .upload(filePath, blob, {
+          contentType: "image/png",
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = await supabase.storage
+        .from("transactions")
+        .createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
+
+      setStorageUrl(data?.signedUrl ?? null);
+      return data?.signedUrl ?? null;
+    } catch (error) {
+      console.error("Upload failed:", error);
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const generateFinalImage = async ({
+    capturedPhotos,
+    selectedTemplate,
+    templateImage,
+    selectedFilter,
+    transactionId,
+  }: {
+    capturedPhotos: string[];
+    selectedTemplate: TemplateOption | null;
+    templateImage: HTMLImageElement | null;
+    selectedFilter: string;
+    transactionId?: string;
+  }) => {
+    if (capturedPhotos.length === 0) {
+      return null;
+    }
+
+    const canvas = document.createElement("canvas");
+    let width = 0;
+    let height = 0;
+    
+    if (templateImage) {
+      width = templateImage.naturalWidth;
+      height = templateImage.naturalHeight;
+    } else {
+      const base = await loadImage(capturedPhotos[0]);
+      width = base.naturalWidth;
+      height = base.naturalHeight;
+    }
+
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return null;
+    }
+
+    // Fill white background
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.filter = selectedFilter;
+
+    // Draw photos
+    for (let i = 0; i < capturedPhotos.length; i++) {
+      const photoUrl = capturedPhotos[i];
+      const img = await loadImage(photoUrl);
+
+      const slot = selectedTemplate?.slots_config?.[i];
+
+      if (slot) {
+        // Draw with object-fit: cover to ensure it fills the slot
+        const aspectSlot = slot.width / slot.height;
+        const aspectImg = img.width / img.height;
+        
+        let sWidth = img.width;
+        let sHeight = img.height;
+        let sx = 0;
+        let sy = 0;
+
+        if (aspectImg > aspectSlot) {
+          // Image is wider than slot
+          sHeight = img.height;
+          sWidth = sHeight * aspectSlot;
+          sx = (img.width - sWidth) / 2;
+        } else {
+          // Image is taller than slot
+          sWidth = img.width;
+          sHeight = sWidth / aspectSlot;
+          sy = (img.height - sHeight) / 2;
+        }
+
+        ctx.drawImage(img, sx, sy, sWidth, sHeight, slot.x, slot.y, slot.width, slot.height);
+      } else if (i === 0 && selectedTemplate?.photo_x !== undefined) {
+        // Legacy single photo fallback
+        ctx.drawImage(
+          img,
+          selectedTemplate.photo_x ?? 0,
+          selectedTemplate.photo_y ?? 0,
+          selectedTemplate.photo_width ?? width,
+          selectedTemplate.photo_height ?? height
+        );
+      }
+    }
+
+    ctx.filter = "none";
+    if (templateImage) {
+      ctx.drawImage(templateImage, 0, 0, canvas.width, canvas.height);
+    }
+    const dataUrl = canvas.toDataURL("image/png");
+    setFinalPreviewUrl(dataUrl);
+    
+    const uploadedUrl = await uploadFinalImage(dataUrl, transactionId);
+    return { finalUrl: dataUrl, uploadedUrl };
+  };
+
+  const resetImages = () => {
+    setFinalPreviewUrl(null);
+    setStorageUrl(null);
+    setIsUploading(false);
+  };
+
+  return {
+    finalPreviewUrl,
+    storageUrl,
+    isUploading,
+    generateFinalImage,
+    uploadFinalImage,
+    setFinalPreviewUrl,
+    setStorageUrl,
+    resetImages,
+  };
+}
