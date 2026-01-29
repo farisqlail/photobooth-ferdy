@@ -29,6 +29,10 @@ type Slot = {
   y: number;
   width: number;
   height: number;
+  x_percent?: number;
+  y_percent?: number;
+  width_percent?: number;
+  height_percent?: number;
 };
 
 type Template = {
@@ -63,9 +67,10 @@ export default function AdminSettingsPage() {
   const [containerWidth, setContainerWidth] = useState(0);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState("");
-  const [resizing, setResizing] = useState<{
+  const [interaction, setInteraction] = useState<{
+    type: "resize" | "drag";
     id: string;
-    handle: "nw" | "ne" | "sw" | "se";
+    handle?: "nw" | "ne" | "sw" | "se";
     startX: number;
     startY: number;
     startW: number;
@@ -85,44 +90,97 @@ export default function AdminSettingsPage() {
     return () => observer.disconnect();
   }, [previewUrl, previewSize]); // Re-observe when preview changes/mounts
 
+  // Recalculate slot pixels from percentages when preview size changes
+  useEffect(() => {
+    if (!previewSize) return;
+    // Skip update if currently interacting to prevent jump loop
+    if (interaction) return;
+    
+    setSlots((prevSlots) => {
+      return prevSlots.map((slot) => {
+        if (
+          typeof slot.x_percent === "number" &&
+          typeof slot.y_percent === "number" &&
+          typeof slot.width_percent === "number" &&
+          typeof slot.height_percent === "number"
+        ) {
+          return {
+            ...slot,
+            x: Math.round((slot.x_percent / 100) * previewSize.width),
+            y: Math.round((slot.y_percent / 100) * previewSize.height),
+            width: Math.round((slot.width_percent / 100) * previewSize.width),
+            height: Math.round((slot.height_percent / 100) * previewSize.height),
+          };
+        }
+        return slot;
+      });
+    });
+  }, [previewSize, interaction]);
+
   const scale = previewSize && containerWidth ? containerWidth / previewSize.width : 1;
 
   useEffect(() => {
-    if (!resizing) return;
+    if (!interaction) return;
+
+    // Add cursor style to body for better UX during interaction
+    const body = document.body;
+    const originalCursor = body.style.cursor;
+    
+    if (interaction.type === "resize" && interaction.handle) {
+      body.style.cursor = `${interaction.handle}-resize`;
+    } else if (interaction.type === "drag") {
+      body.style.cursor = "move";
+    }
+
     const handleMove = (e: MouseEvent) => {
-      const dx = (e.clientX - resizing.startX) / scale;
-      const dy = (e.clientY - resizing.startY) / scale;
+      const dx = (e.clientX - interaction.startX) / scale;
+      const dy = (e.clientY - interaction.startY) / scale;
 
       setSlots((prev) =>
         prev.map((slot) => {
-          if (slot.id !== resizing.id) return slot;
+          if (slot.id !== interaction.id) return slot;
           let { x, y, width, height } = slot;
 
-          if (resizing.handle.includes("e")) width = Math.max(10, resizing.startW + dx);
-          if (resizing.handle.includes("s")) height = Math.max(10, resizing.startH + dy);
-          if (resizing.handle.includes("w")) {
-            const newW = Math.max(10, resizing.startW - dx);
-            x = resizing.startSlotX + (resizing.startW - newW);
-            width = newW;
-          }
-          if (resizing.handle.includes("n")) {
-            const newH = Math.max(10, resizing.startH - dy);
-            y = resizing.startSlotY + (resizing.startH - newH);
-            height = newH;
+          if (interaction.type === "resize" && interaction.handle) {
+            if (interaction.handle.includes("e")) width = Math.max(10, interaction.startW + dx);
+            if (interaction.handle.includes("s")) height = Math.max(10, interaction.startH + dy);
+            if (interaction.handle.includes("w")) {
+              const newW = Math.max(10, interaction.startW - dx);
+              x = interaction.startSlotX + (interaction.startW - newW);
+              width = newW;
+            }
+            if (interaction.handle.includes("n")) {
+              const newH = Math.max(10, interaction.startH - dy);
+              y = interaction.startSlotY + (interaction.startH - newH);
+              height = newH;
+            }
+          } else if (interaction.type === "drag") {
+             x = interaction.startSlotX + dx;
+             y = interaction.startSlotY + dy;
           }
 
-          return { ...slot, width: Math.round(width), height: Math.round(height), x: Math.round(x), y: Math.round(y) };
+          const newSlot = { ...slot, width: Math.round(width), height: Math.round(height), x: Math.round(x), y: Math.round(y) };
+          
+          if (previewSize) {
+             newSlot.x_percent = (newSlot.x / previewSize.width) * 100;
+             newSlot.y_percent = (newSlot.y / previewSize.height) * 100;
+             newSlot.width_percent = (newSlot.width / previewSize.width) * 100;
+             newSlot.height_percent = (newSlot.height / previewSize.height) * 100;
+          }
+
+          return newSlot;
         })
       );
     };
-    const handleUp = () => setResizing(null);
+    const handleUp = () => setInteraction(null);
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("mouseup", handleUp);
     return () => {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
+      body.style.cursor = originalCursor;
     };
-  }, [resizing, scale]);
+  }, [interaction, scale, previewSize]);
 
   const [loading, setLoading] = useState(true);
   const [supabaseState] = useState(() => {
@@ -314,9 +372,22 @@ export default function AdminSettingsPage() {
       formData.append("file", selectedFile);
     }
     formData.append("name", templateName || (selectedFile ? selectedFile.name : "Template"));
-    formData.append("slots_config", JSON.stringify(slots));
+
+    // Calculate percentages for slots
+    const processedSlots = slots.map((slot) => {
+      if (!previewSize || previewSize.width === 0 || previewSize.height === 0) return slot;
+      return {
+        ...slot,
+        x_percent: (slot.x / previewSize.width) * 100,
+        y_percent: (slot.y / previewSize.height) * 100,
+        width_percent: (slot.width / previewSize.width) * 100,
+        height_percent: (slot.height / previewSize.height) * 100,
+      };
+    });
+
+    formData.append("slots_config", JSON.stringify(processedSlots));
     // Backward compatibility
-    const first = slots[0] || { x: 0, y: 0, width: 0, height: 0 };
+    const first = processedSlots[0] || { x: 0, y: 0, width: 0, height: 0 };
     formData.append("photo_x", String(first.x));
     formData.append("photo_y", String(first.y));
     formData.append("photo_width", String(first.width));
@@ -594,16 +665,20 @@ export default function AdminSettingsPage() {
                     {slots.map((slot, index) => (
                       <motion.div
                         key={slot.id}
-                        drag
-                        dragMomentum={false}
-                        onDragEnd={(_, info) => {
-                          const newX = Math.round(slot.x + info.offset.x / scale);
-                          const newY = Math.round(slot.y + info.offset.y / scale);
-                          setSlots((prev) =>
-                            prev.map((s) => (s.id === slot.id ? { ...s, x: newX, y: newY } : s))
-                          );
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          setSelectedSlotId(slot.id);
+                          setInteraction({
+                            type: "drag",
+                            id: slot.id,
+                            startX: e.clientX,
+                            startY: e.clientY,
+                            startW: slot.width,
+                            startH: slot.height,
+                            startSlotX: slot.x,
+                            startSlotY: slot.y,
+                          });
                         }}
-                        onMouseDown={() => setSelectedSlotId(slot.id)}
                         className={`absolute border-2 ${
                           selectedSlotId === slot.id ? "border-primary z-20" : "border-primary/50 z-10"
                         } bg-primary/20 group`}
@@ -628,7 +703,8 @@ export default function AdminSettingsPage() {
                             } ${handle.includes("w") ? "-left-1" : "-right-1"} cursor-${handle}-resize`}
                             onMouseDown={(e) => {
                               e.stopPropagation(); // Prevent drag start
-                              setResizing({
+                              setInteraction({
+                                type: "resize",
                                 id: slot.id,
                                 handle,
                                 startX: e.clientX,
@@ -667,16 +743,22 @@ export default function AdminSettingsPage() {
                         startY = Math.round((previewSize.height - defaultH) / 2);
                       }
 
-                      setSlots((prev) => [
-                        ...prev,
-                        {
-                          id: crypto.randomUUID(),
-                          x: startX,
-                          y: startY,
-                          width: defaultW,
-                          height: defaultH,
-                        },
-                      ]);
+                      const newSlot: Slot = {
+                        id: crypto.randomUUID(),
+                        x: startX,
+                        y: startY,
+                        width: defaultW,
+                        height: defaultH,
+                      };
+
+                      if (previewSize) {
+                        newSlot.x_percent = (startX / previewSize.width) * 100;
+                        newSlot.y_percent = (startY / previewSize.height) * 100;
+                        newSlot.width_percent = (defaultW / previewSize.width) * 100;
+                        newSlot.height_percent = (defaultH / previewSize.height) * 100;
+                      }
+
+                      setSlots((prev) => [...prev, newSlot]);
                     }}
                   >
                     <Plus className="h-4 w-4 mr-1" />
@@ -720,9 +802,13 @@ export default function AdminSettingsPage() {
                             value={slot.x}
                             onChange={(e) =>
                               setSlots((prev) =>
-                                prev.map((s) =>
-                                  s.id === slot.id ? { ...s, x: Number(e.target.value) } : s
-                                )
+                                prev.map((s) => {
+                                  if (s.id !== slot.id) return s;
+                                  const val = Number(e.target.value);
+                                  const updated = { ...s, x: val };
+                                  if (previewSize) updated.x_percent = (val / previewSize.width) * 100;
+                                  return updated;
+                                })
                               )
                             }
                           />
@@ -735,9 +821,13 @@ export default function AdminSettingsPage() {
                             value={slot.y}
                             onChange={(e) =>
                               setSlots((prev) =>
-                                prev.map((s) =>
-                                  s.id === slot.id ? { ...s, y: Number(e.target.value) } : s
-                                )
+                                prev.map((s) => {
+                                  if (s.id !== slot.id) return s;
+                                  const val = Number(e.target.value);
+                                  const updated = { ...s, y: val };
+                                  if (previewSize) updated.y_percent = (val / previewSize.height) * 100;
+                                  return updated;
+                                })
                               )
                             }
                           />
@@ -750,9 +840,13 @@ export default function AdminSettingsPage() {
                             value={slot.width}
                             onChange={(e) =>
                               setSlots((prev) =>
-                                prev.map((s) =>
-                                  s.id === slot.id ? { ...s, width: Number(e.target.value) } : s
-                                )
+                                prev.map((s) => {
+                                  if (s.id !== slot.id) return s;
+                                  const val = Number(e.target.value);
+                                  const updated = { ...s, width: val };
+                                  if (previewSize) updated.width_percent = (val / previewSize.width) * 100;
+                                  return updated;
+                                })
                               )
                             }
                           />
@@ -765,9 +859,13 @@ export default function AdminSettingsPage() {
                             value={slot.height}
                             onChange={(e) =>
                               setSlots((prev) =>
-                                prev.map((s) =>
-                                  s.id === slot.id ? { ...s, height: Number(e.target.value) } : s
-                                )
+                                prev.map((s) => {
+                                  if (s.id !== slot.id) return s;
+                                  const val = Number(e.target.value);
+                                  const updated = { ...s, height: val };
+                                  if (previewSize) updated.height_percent = (val / previewSize.height) * 100;
+                                  return updated;
+                                })
                               )
                             }
                           />

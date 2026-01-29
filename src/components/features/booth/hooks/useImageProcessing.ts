@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { TemplateOption } from "../types";
-import { loadImage } from "../utils";
+import { loadImage, getSlotPercentages } from "../utils";
 
 export function useImageProcessing(supabase: SupabaseClient | null) {
   const [finalPreviewUrl, setFinalPreviewUrl] = useState<string | null>(null);
@@ -10,6 +10,29 @@ export function useImageProcessing(supabase: SupabaseClient | null) {
 
   const uploadFinalImage = async (dataUrl: string, transactionId?: string) => {
     if (!supabase) {
+       // Direct fallback to local storage if supabase is not configured
+       try {
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        const file = new File([blob], "final.png", { type: "image/png" });
+        
+        const formData = new FormData();
+        formData.append("file", file);
+        
+        const uploadRes = await fetch("/api/local-storage", {
+          method: "POST",
+          body: formData,
+        });
+        
+        if (uploadRes.ok) {
+          const result = await uploadRes.json();
+          const absoluteUrl = `${window.location.origin}${result.url}`;
+          setStorageUrl(absoluteUrl);
+          return absoluteUrl;
+        }
+      } catch (localError) {
+        console.error("Local upload failed:", localError);
+      }
       setStorageUrl(dataUrl);
       return dataUrl;
     }
@@ -41,7 +64,35 @@ export function useImageProcessing(supabase: SupabaseClient | null) {
       setStorageUrl(data?.signedUrl ?? null);
       return data?.signedUrl ?? null;
     } catch (error) {
-      console.error("Upload failed:", error);
+      console.error("Supabase Upload failed, falling back to local storage:", error);
+      
+      // Fallback: Upload to local API
+      try {
+        const response = await fetch(dataUrl);
+        const blob = await response.blob();
+        const file = new File([blob], "final.png", { type: "image/png" });
+        
+        const formData = new FormData();
+        formData.append("file", file);
+        
+        const uploadRes = await fetch("/api/local-storage", {
+          method: "POST",
+          body: formData,
+        });
+        
+        if (uploadRes.ok) {
+          const result = await uploadRes.json();
+          // Construct absolute URL using window.location.origin
+          const absoluteUrl = `${window.location.origin}${result.url}`;
+          setStorageUrl(absoluteUrl);
+          return absoluteUrl;
+        }
+      } catch (localError) {
+        console.error("Local upload failed:", localError);
+      }
+
+      // Final fallback to data URL (offline mode)
+      setStorageUrl(dataUrl);
       return null;
     } finally {
       setIsUploading(false);
@@ -96,41 +147,54 @@ export function useImageProcessing(supabase: SupabaseClient | null) {
       const photoUrl = capturedPhotos[i];
       const img = await loadImage(photoUrl);
 
-      const slot = selectedTemplate?.slots_config?.[i];
+      let slot = selectedTemplate?.slots_config?.[i];
+      let slotX = 0;
+      let slotY = 0;
+      let slotWidth = width;
+      let slotHeight = height;
 
       if (slot) {
-        // Draw with object-fit: cover to ensure it fills the slot
-        const aspectSlot = slot.width / slot.height;
-        const aspectImg = img.width / img.height;
+        // Calculate dimensions based on percentages if available, or fall back to absolute
+        // We use the canvas width/height (which matches template natural size) as the reference
+        const { x, y, width: w, height: h } = getSlotPercentages(slot, width, height);
         
-        let sWidth = img.width;
-        let sHeight = img.height;
-        let sx = 0;
-        let sy = 0;
-
-        if (aspectImg > aspectSlot) {
-          // Image is wider than slot
-          sHeight = img.height;
-          sWidth = sHeight * aspectSlot;
-          sx = (img.width - sWidth) / 2;
-        } else {
-          // Image is taller than slot
-          sWidth = img.width;
-          sHeight = sWidth / aspectSlot;
-          sy = (img.height - sHeight) / 2;
-        }
-
-        ctx.drawImage(img, sx, sy, sWidth, sHeight, slot.x, slot.y, slot.width, slot.height);
+        slotX = (x / 100) * width;
+        slotY = (y / 100) * height;
+        slotWidth = (w / 100) * width;
+        slotHeight = (h / 100) * height;
       } else if (i === 0 && selectedTemplate?.photo_x !== undefined) {
-        // Legacy single photo fallback
-        ctx.drawImage(
-          img,
-          selectedTemplate.photo_x ?? 0,
-          selectedTemplate.photo_y ?? 0,
-          selectedTemplate.photo_width ?? width,
-          selectedTemplate.photo_height ?? height
-        );
+         // Legacy single photo fallback
+         slotX = selectedTemplate.photo_x ?? 0;
+         slotY = selectedTemplate.photo_y ?? 0;
+         slotWidth = selectedTemplate.photo_width ?? width;
+         slotHeight = selectedTemplate.photo_height ?? height;
+      } else {
+        // No slot config found for this index
+        continue; 
       }
+
+      // Draw with object-fit: cover to ensure it fills the slot
+      const aspectSlot = slotWidth / slotHeight;
+      const aspectImg = img.width / img.height;
+      
+      let sWidth = img.width;
+      let sHeight = img.height;
+      let sx = 0;
+      let sy = 0;
+
+      if (aspectImg > aspectSlot) {
+        // Image is wider than slot
+        sHeight = img.height;
+        sWidth = sHeight * aspectSlot;
+        sx = (img.width - sWidth) / 2;
+      } else {
+        // Image is taller than slot
+        sWidth = img.width;
+        sHeight = sWidth / aspectSlot;
+        sy = (img.height - sHeight) / 2;
+      }
+
+      ctx.drawImage(img, sx, sy, sWidth, sHeight, slotX, slotY, slotWidth, slotHeight);
     }
 
     ctx.filter = "none";

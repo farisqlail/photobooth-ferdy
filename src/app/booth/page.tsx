@@ -52,6 +52,7 @@ export default function BoothPage() {
   const {
     previewVideoRef,
     capturedPhotos,
+    capturedVideos,
     isCapturing,
     countdown,
     startCamera,
@@ -72,32 +73,11 @@ export default function BoothPage() {
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateOption | null>(null);
   const [templateImage, setTemplateImage] = useState<HTMLImageElement | null>(null);
   const [selectedFilter, setSelectedFilter] = useState(filters[0].value);
-  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
 
   // --- Refs ---
-  const previewContainerRef = useRef<HTMLDivElement>(null);
   const finishTimerRef = useRef<number | null>(null);
 
   // --- Effects ---
-
-  // Handle responsive container size for preview
-  useEffect(() => {
-    if (state.step !== "session" && state.step !== "filter") return;
-    const element = previewContainerRef.current;
-    if (!element) return;
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setContainerSize({
-          width: entry.contentRect.width,
-          height: entry.contentRect.height,
-        });
-      }
-    });
-
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [state.step]);
 
   // Handle finish timer
   useEffect(() => {
@@ -395,8 +375,6 @@ export default function BoothPage() {
               capturedPhotos={capturedPhotos}
               selectedTemplate={selectedTemplate}
               templateImage={templateImage}
-              containerSize={containerSize}
-              previewContainerRef={previewContainerRef}
               selectedFilter={selectedFilter}
               onSelectFilter={setSelectedFilter}
               onGoToStep={goToStep}
@@ -413,6 +391,8 @@ export default function BoothPage() {
               transaction={state.transaction}
               onSetEmail={handleSetEmail}
               onGoToStep={goToStep}
+              capturedPhotos={capturedPhotos}
+              capturedVideos={capturedVideos}
             />
           )}
 

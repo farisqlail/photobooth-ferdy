@@ -10,7 +10,10 @@ export function usePhotoSession() {
   
   const [countdown, setCountdown] = useState<number | null>(null);
   const [capturedPhotos, setCapturedPhotos] = useState<string[]>([]);
+  const [capturedVideos, setCapturedVideos] = useState<string[]>([]); // New state for live photos (videos)
   const [isCapturing, setIsCapturing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
 
   const startCamera = useCallback(async () => {
     try {
@@ -134,6 +137,39 @@ export function usePhotoSession() {
     return canvas.toDataURL("image/png");
   };
 
+  const startRecording = () => {
+    if (!streamRef.current) return;
+    recordedChunksRef.current = [];
+    const options = { mimeType: "video/webm" };
+    try {
+      mediaRecorderRef.current = new MediaRecorder(streamRef.current, options);
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+        }
+      };
+      mediaRecorderRef.current.start();
+    } catch (e) {
+      console.error("Failed to start recording", e);
+    }
+  };
+
+  const stopRecording = async (): Promise<string | null> => {
+    return new Promise((resolve) => {
+      if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+        resolve(null);
+        return;
+      }
+
+      mediaRecorderRef.current.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: "video/webm" });
+        const url = URL.createObjectURL(blob);
+        resolve(url);
+      };
+      mediaRecorderRef.current.stop();
+    });
+  };
+
   const startPhotoSession = async (
     selectedTemplate: TemplateOption | null, 
     templateImage: HTMLImageElement | null,
@@ -143,10 +179,16 @@ export function usePhotoSession() {
       return;
     }
     setCapturedPhotos([]);
+    setCapturedVideos([]);
     setIsCapturing(true);
     const shots = selectedTemplate?.slots ?? 3;
     const results: string[] = [];
+    const videoResults: string[] = [];
+
     for (let index = 0; index < shots; index += 1) {
+      // Start recording before countdown finishes (approx 3 seconds of video)
+      startRecording();
+      
       await runCountdown();
 
       let ratio = 3 / 4;
@@ -160,9 +202,22 @@ export function usePhotoSession() {
       }
 
       const frame = await captureFrame(ratio, templateImage);
+      
+      // Stop recording immediately after capture
+      // We might want to wait a split second to capture "after" movement too?
+      // Apple Live Photos capture 1.5s after.
+      // Let's wait 1 second to capture post-pose.
+      await new Promise(r => setTimeout(r, 1000));
+      
+      const videoUrl = await stopRecording();
+
       if (frame) {
         results.push(frame);
         setCapturedPhotos([...results]);
+      }
+      if (videoUrl) {
+        videoResults.push(videoUrl);
+        setCapturedVideos([...videoResults]);
       }
     }
     setIsCapturing(false);
@@ -171,6 +226,7 @@ export function usePhotoSession() {
 
   const resetSession = () => {
     setCapturedPhotos([]);
+    setCapturedVideos([]);
     setCountdown(null);
     setIsCapturing(false);
     if (countdownTimerRef.current) {
@@ -186,6 +242,7 @@ export function usePhotoSession() {
     canvasRef,
     countdown,
     capturedPhotos,
+    capturedVideos,
     isCapturing,
     setCapturedPhotos,
     startCamera,

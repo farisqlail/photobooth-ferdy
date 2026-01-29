@@ -55,7 +55,18 @@ export type TemplateOption = {
   photo_y?: number;
   photo_width?: number;
   photo_height?: number;
-  slots_config?: { id: string; x: number; y: number; width: number; height: number }[];
+  slots_config?: { 
+    id: string; 
+    x: number; 
+    y: number; 
+    width: number; 
+    height: number;
+    // Percentage based coordinates (0-1 or 0-100, we'll use 0-100 for easier CSS)
+    x_percent?: number;
+    y_percent?: number;
+    width_percent?: number;
+    height_percent?: number;
+  }[];
 };
 
 export type FilterOption = {

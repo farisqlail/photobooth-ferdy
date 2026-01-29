@@ -4,14 +4,13 @@ import { Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Step, TemplateOption } from "./types";
 import { filters } from "./constants";
-import { RefObject } from "react";
+import { getSlotPercentages } from "./utils";
+import { useRef, useState, useEffect } from "react";
 
 interface FilterStepProps {
   capturedPhotos: string[];
   selectedTemplate: TemplateOption | null;
   templateImage: HTMLImageElement | null;
-  containerSize: { width: number; height: number };
-  previewContainerRef: RefObject<HTMLDivElement | null>;
   selectedFilter: string;
   onSelectFilter: (filter: string) => void;
   onGoToStep: (step: Step) => void;
@@ -22,13 +21,31 @@ export function FilterStep({
   capturedPhotos,
   selectedTemplate,
   templateImage,
-  containerSize,
-  previewContainerRef,
   selectedFilter,
   onSelectFilter,
   onGoToStep,
   onGenerateFinalImage,
 }: FilterStepProps) {
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const element = previewContainerRef.current;
+    if (!element) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setContainerSize({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
+      }
+    });
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <motion.section
       key="filter"
@@ -47,18 +64,10 @@ export function FilterStep({
           <div
             style={{
               position: "relative",
-              width:
-                templateImage.naturalWidth *
-                Math.min(
-                  containerSize.width / templateImage.naturalWidth,
-                  containerSize.height / templateImage.naturalHeight
-                ),
-              height:
-                templateImage.naturalHeight *
-                Math.min(
-                  containerSize.width / templateImage.naturalWidth,
-                  containerSize.height / templateImage.naturalHeight
-                ),
+              aspectRatio: `${templateImage.naturalWidth} / ${templateImage.naturalHeight}`,
+              width: "auto",
+              height: "100%",
+              maxWidth: "100%",
             }}
           >
             {/* Photos (Behind Template) */}
@@ -78,9 +87,11 @@ export function FilterStep({
                 };
               }
               if (!slot) return null;
-              const scale = Math.min(
-                containerSize.width / templateImage.naturalWidth,
-                containerSize.height / templateImage.naturalHeight
+
+              const { x, y, width, height } = getSlotPercentages(
+                slot,
+                templateImage.naturalWidth,
+                templateImage.naturalHeight
               );
 
               return (
@@ -88,10 +99,10 @@ export function FilterStep({
                   key={index}
                   className="absolute overflow-hidden"
                   style={{
-                    left: slot.x * scale,
-                    top: slot.y * scale,
-                    width: slot.width * scale,
-                    height: slot.height * scale,
+                    left: `${x}%`,
+                    top: `${y}%`,
+                    width: `${width}%`,
+                    height: `${height}%`,
                     zIndex: 0,
                   }}
                 >
