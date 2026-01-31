@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Lumen Booth",
+  title: "Booth Lab",
   description: "Modern photobooth experience with live capture and analytics.",
 };
 

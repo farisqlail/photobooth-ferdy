@@ -51,7 +51,7 @@ export function PaymentStep({
           </Card>
         ))}
       </div>
-      <Button variant="ghost" onClick={() => onGoToStep("idle")}>
+      <Button variant="ghost" onClick={() => onGoToStep("quantity")}>
         <ChevronLeft className="h-4 w-4" />
         Kembali
       </Button>

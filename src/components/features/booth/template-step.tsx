@@ -62,7 +62,7 @@ export function TemplateStep({
         ))}
       </div>
       <div className="flex flex-wrap gap-3">
-        <Button variant="ghost" onClick={() => onGoToStep("payment")}>
+        <Button variant="ghost" onClick={() => onGoToStep("idle")}>
           <ChevronLeft className="h-4 w-4" />
           Kembali
         </Button>

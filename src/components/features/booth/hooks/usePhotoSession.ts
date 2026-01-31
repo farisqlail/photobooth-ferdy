@@ -170,6 +170,54 @@ export function usePhotoSession() {
     });
   };
 
+  const retakePhoto = async (
+    index: number,
+    selectedTemplate: TemplateOption | null, 
+    templateImage: HTMLImageElement | null,
+    onComplete: () => Promise<void>
+  ) => {
+    if (isCapturing) return;
+    setIsCapturing(true);
+
+    startRecording();
+    
+    await runCountdown();
+
+    let ratio = 3 / 4;
+    const slot = selectedTemplate?.slots_config?.[index];
+    if (slot && slot.width && slot.height) {
+      ratio = slot.width / slot.height;
+    } else if (selectedTemplate?.photo_width && selectedTemplate?.photo_height) {
+      ratio = selectedTemplate.photo_width / selectedTemplate.photo_height;
+    } else if (templateImage && templateImage.naturalWidth && templateImage.naturalHeight) {
+      ratio = templateImage.naturalWidth / templateImage.naturalHeight;
+    }
+
+    const frame = await captureFrame(ratio, templateImage);
+    
+    await new Promise(r => setTimeout(r, 1000));
+    
+    const videoUrl = await stopRecording();
+
+    if (frame) {
+      setCapturedPhotos(prev => {
+        const next = [...prev];
+        next[index] = frame;
+        return next;
+      });
+    }
+    if (videoUrl) {
+      setCapturedVideos(prev => {
+        const next = [...prev];
+        next[index] = videoUrl;
+        return next;
+      });
+    }
+
+    setIsCapturing(false);
+    await onComplete();
+  };
+
   const startPhotoSession = async (
     selectedTemplate: TemplateOption | null, 
     templateImage: HTMLImageElement | null,
@@ -249,6 +297,7 @@ export function usePhotoSession() {
     stopCamera,
     onPreviewVideoMount,
     startPhotoSession,
+    retakePhoto,
     resetSession,
   };
 }

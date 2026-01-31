@@ -13,6 +13,8 @@ interface SessionStepProps {
   startPhotoSession: () => void;
   isCapturing: boolean;
   onGoToStep: (step: Step) => void;
+  retakeIndex?: number | null;
+  onCancelRetake?: () => void;
 }
 
 export function SessionStep({
@@ -23,7 +25,11 @@ export function SessionStep({
   startPhotoSession,
   isCapturing,
   onGoToStep,
+  retakeIndex,
+  onCancelRetake,
 }: SessionStepProps) {
+  const isRetakeMode = retakeIndex !== null && retakeIndex !== undefined;
+
   return (
     <motion.section
       key="session"
@@ -66,7 +72,7 @@ export function SessionStep({
                   capturedPhotos[index]
                     ? "border-primary shadow-md"
                     : "border-muted bg-muted/20"
-                }`}
+                } ${retakeIndex === index ? "ring-4 ring-yellow-500 border-yellow-500" : ""}`}
               >
                 {capturedPhotos[index] ? (
                   <Image
@@ -89,7 +95,26 @@ export function SessionStep({
 
       {/* Bottom Controls */}
       <div className="flex items-center justify-center gap-4 py-4">
-        {capturedPhotos.length > 0 && !isCapturing ? (
+        {isRetakeMode ? (
+          <>
+            <Button
+              variant="ghost"
+              onClick={onCancelRetake}
+              disabled={isCapturing}
+            >
+              Batal
+            </Button>
+            <Button
+              size="lg"
+              className="h-14 rounded-full px-12 text-lg shadow-sm"
+              onClick={startPhotoSession}
+              disabled={isCapturing}
+            >
+              <Camera className="mr-2 h-6 w-6" />
+              {isCapturing ? "Mengambil Foto..." : `Ambil Ulang Foto ${retakeIndex! + 1}`}
+            </Button>
+          </>
+        ) : capturedPhotos.length > 0 && !isCapturing ? (
           <>
             <Button
               variant="destructive"
@@ -98,7 +123,7 @@ export function SessionStep({
               onClick={startPhotoSession}
               disabled={isCapturing}
             >
-              Ulangi
+              Ulangi Sesi
             </Button>
             <Button
               variant="default"

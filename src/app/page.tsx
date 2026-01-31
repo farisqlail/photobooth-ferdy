@@ -11,7 +11,7 @@ export default function Home() {
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1">
               <Sparkles className="h-4 w-4 text-primary" />
-              Lumen Booth Platform
+              Booth Lab Platform
             </span>
           </div>
           <div className="flex flex-col gap-6">

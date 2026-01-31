@@ -46,63 +46,6 @@ export function DeliveryStep({
   const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [emailErrorMessage, setEmailErrorMessage] = useState<string>("");
 
-  // Helper to generate a landing page for both photo and video
-  const generateLandingPage = async (photoUrl: string, videoUrl: string | null, gifDownloadUrl: string | null) => {
-    try {
-       // Create HTML content
-       const html = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Photobooth Download</title>
-    <style>
-        body { font-family: system-ui, -apple-system, sans-serif; background: #000; color: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; text-align: center; }
-        .container { max-width: 600px; width: 100%; background: #111; border-radius: 20px; padding: 20px; border: 1px solid #333; }
-        img { width: 100%; border-radius: 12px; margin-bottom: 20px; }
-        .btn { display: block; width: 100%; padding: 16px; background: #fff; color: #000; text-decoration: none; border-radius: 12px; font-weight: bold; margin-bottom: 12px; font-size: 16px; box-sizing: border-box; }
-        .btn.secondary { background: #333; color: #fff; }
-        h1 { margin-bottom: 20px; font-size: 24px; }
-        p { color: #888; margin-bottom: 30px; font-size: 14px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>Your Photos are Ready!</h1>
-        <img src="${photoUrl}" alt="Photo">
-        <a href="${photoUrl}" download="photo.png" class="btn">Download Photo</a>
-        ${gifDownloadUrl ? `<a href="${gifDownloadUrl}" download="animation.gif" class="btn secondary">Download GIF</a>` : ''}
-        ${videoUrl ? `<a href="${videoUrl}" download="video.webm" class="btn secondary">Download Live Video</a>` : ''}
-        <p>Thank you for visiting!</p>
-    </div>
-</body>
-</html>
-       `;
-       
-       const blob = new Blob([html], { type: 'text/html' });
-       
-       if (supabase && transaction.id) {
-          const filePath = `transactions/${transaction.id}/index.html`;
-          const { error } = await supabase.storage
-              .from("captures")
-              .upload(filePath, blob, { contentType: "text/html", upsert: true });
-
-          if (!error) {
-             const { data } = await supabase.storage
-                .from("captures")
-                .createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
-             return data?.signedUrl ?? null;
-          } else {
-             console.error("Failed to upload landing page to Supabase", error);
-          }
-       }
-    } catch (e) {
-      console.error("Failed to generate landing page", e);
-    }
-    return null;
-  };
-
   // Generate GIF on mount
   useEffect(() => {
     if (capturedPhotos.length > 0 && !gifUrl && !isGeneratingGif) {
@@ -116,96 +59,78 @@ export function DeliveryStep({
     }
   }, [capturedPhotos, gifUrl, isGeneratingGif]);
 
-  // Handle auto-upload for QR code generation
+  // Handle auto-upload and QR code generation
   useEffect(() => {
-    const prepareDownload = async () => {
-        // If no storageUrl or it is a data url (meaning no upload happened yet or failed)
-        if (!storageUrl || storageUrl.startsWith("data:")) return;
-        if (localQrUrl) return; // Already generated
+    // 1. Set QR Code URL immediately to the download page
+    if (transaction.id && !localQrUrl) {
+        setLocalQrUrl(`${window.location.origin}/download/${transaction.id}`);
+    }
 
-        // If we have captured videos, let's merge and upload them too (if not already done)
-        let videoDownloadUrl: string | null = null;
-        
-        if (capturedVideos.length > 0) {
+    const uploadAssets = async () => {
+        if (!supabase || !transaction.id) return;
+
+        // 2. Upload Video if available and not yet uploaded
+        if (capturedVideos.length > 0 && !videoDownloadUrl) {
             try {
                 // Check if we need to merge locally
                 const mergedUrl = await mergeVideos(capturedVideos); // This returns blob url
                 const response = await fetch(mergedUrl);
                 const blob = await response.blob();
                 
-                if (supabase && transaction.id) {
-                    const filePath = `transactions/${transaction.id}/video.webm`;
-                    await supabase.storage.from("captures").upload(filePath, blob, { contentType: "video/webm", upsert: true });
+                const filePath = `transactions/${transaction.id}/video.webm`;
+                const { error } = await supabase.storage.from("captures").upload(filePath, blob, { contentType: "video/webm", upsert: true });
+                
+                if (!error) {
                     const { data } = await supabase.storage.from("captures").createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
-                    videoDownloadUrl = data?.signedUrl ?? null;
-                    setVideoDownloadUrl(videoDownloadUrl);
+                    if (data?.signedUrl) {
+                        setVideoDownloadUrl(data.signedUrl);
+                    }
                 }
             } catch (e) {
-                console.error("Background video merge failed", e);
+                console.error("Background video merge/upload failed", e);
             }
         }
 
-        // Upload GIF if available
-        let gifDownloadUrl: string | null = null;
-        if (gifUrl) {
+        // 3. Upload GIF if available and not yet uploaded
+        // We check gifUrl (which comes from createGif effect) or generate it JIT
+        if (capturedPhotos.length > 0 && !gifDownloadUrl) {
              try {
-                const response = await fetch(gifUrl);
-                const blob = await response.blob();
+                let currentGifUrl = gifUrl;
                 
-                if (supabase && transaction.id) {
+                // If gifUrl not ready yet, try to generate it now
+                if (!currentGifUrl) {
+                   try {
+                     currentGifUrl = await createGif(capturedPhotos);
+                     setGifUrl(currentGifUrl);
+                   } catch (err) {
+                     console.error("JIT GIF generation failed", err);
+                   }
+                }
+
+                if (currentGifUrl) {
+                    const response = await fetch(currentGifUrl);
+                    const blob = await response.blob();
+                    
                     const filePath = `transactions/${transaction.id}/animation.gif`;
-                    await supabase.storage.from("captures").upload(filePath, blob, { contentType: "image/gif", upsert: true });
-                    const { data } = await supabase.storage.from("captures").createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
-                    gifDownloadUrl = data?.signedUrl ?? null;
-                    setGifDownloadUrl(gifDownloadUrl);
+                    const { error } = await supabase.storage.from("captures").upload(filePath, blob, { contentType: "image/gif", upsert: true });
+                    
+                    if (!error) {
+                        const { data } = await supabase.storage.from("captures").createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
+                        if (data?.signedUrl) {
+                            setGifDownloadUrl(data.signedUrl);
+                        }
+                    }
                 }
              } catch (e) {
                  console.error("GIF upload failed", e);
              }
-        } else if (capturedPhotos.length > 0) {
-             // GIF not ready yet? If capturedPhotos exist, we should probably wait for GIF.
-             // But to avoid blocking, maybe we skip it for now?
-             // Or we can create it on the fly here if not ready?
-             // Let's create it here if gifUrl is null
-             try {
-                const url = await createGif(capturedPhotos);
-                setGifUrl(url); // Update state too
-                const response = await fetch(url);
-                const blob = await response.blob();
-                
-                if (supabase && transaction.id) {
-                    const filePath = `transactions/${transaction.id}/animation.gif`;
-                    await supabase.storage.from("captures").upload(filePath, blob, { contentType: "image/gif", upsert: true });
-                    const { data } = await supabase.storage.from("captures").createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
-                    gifDownloadUrl = data?.signedUrl ?? null;
-                    setGifDownloadUrl(gifDownloadUrl);
-                }
-             } catch (e) {
-                 console.error("Just-in-time GIF generation failed", e);
-             }
-        }
-
-        // Now generate the landing page
-        const landingPageUrl = await generateLandingPage(storageUrl, videoDownloadUrl, gifDownloadUrl);
-        if (landingPageUrl) {
-            setLocalQrUrl(landingPageUrl);
-        } else {
-            // Fallback to just photo URL
-            setLocalQrUrl(storageUrl);
         }
     };
     
-    if (capturedVideos.length > 0 || capturedPhotos.length > 0) {
-        prepareDownload();
-    } else {
-        // No extra media, just generate landing page or use photo url
-        if (storageUrl && !storageUrl.startsWith("data:") && !localQrUrl) {
-            generateLandingPage(storageUrl, null, null).then(url => {
-                 setLocalQrUrl(url || storageUrl);
-            });
-        }
-    }
-  }, [storageUrl, capturedVideos, capturedPhotos, localQrUrl, gifUrl, supabase, transaction.id]);
+    uploadAssets();
+
+  }, [capturedVideos, capturedPhotos, localQrUrl, gifUrl, supabase, transaction.id, videoDownloadUrl, gifDownloadUrl]);
+
 
   const handleSendEmail = async () => {
     if (!transaction.email || !storageUrl) return;

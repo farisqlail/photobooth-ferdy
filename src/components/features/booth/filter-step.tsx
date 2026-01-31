@@ -6,6 +6,14 @@ import { Step, TemplateOption } from "./types";
 import { filters } from "./constants";
 import { getSlotPercentages } from "./utils";
 import { useRef, useState, useEffect } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface FilterStepProps {
   capturedPhotos: string[];
@@ -15,6 +23,7 @@ interface FilterStepProps {
   onSelectFilter: (filter: string) => void;
   onGoToStep: (step: Step) => void;
   onGenerateFinalImage: () => void;
+  onRetakePhoto: (index: number) => void;
 }
 
 export function FilterStep({
@@ -25,9 +34,11 @@ export function FilterStep({
   onSelectFilter,
   onGoToStep,
   onGenerateFinalImage,
+  onRetakePhoto,
 }: FilterStepProps) {
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const [retakeConfirmationIndex, setRetakeConfirmationIndex] = useState<number | null>(null);
 
   useEffect(() => {
     const element = previewContainerRef.current;
@@ -97,7 +108,7 @@ export function FilterStep({
               return (
                 <div
                   key={index}
-                  className="absolute overflow-hidden"
+                  className="absolute overflow-hidden cursor-pointer group"
                   style={{
                     left: `${x}%`,
                     top: `${y}%`,
@@ -105,15 +116,21 @@ export function FilterStep({
                     height: `${height}%`,
                     zIndex: 0,
                   }}
+                  onClick={() => setRetakeConfirmationIndex(index)}
                 >
                   <Image
                     src={photo}
                     alt="captured"
                     fill
-                    className="object-cover"
+                    className="object-cover transition-transform group-hover:scale-105"
                     style={{ filter: selectedFilter }}
                     unoptimized
                   />
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
+                    <span className="rounded bg-black/50 px-2 py-1 text-xs font-bold text-white backdrop-blur-sm">
+                      Ubah Foto
+                    </span>
+                  </div>
                 </div>
               );
             })}
@@ -198,6 +215,38 @@ export function FilterStep({
           </Button>
         </div>
       </div>
+
+      <Dialog
+        open={retakeConfirmationIndex !== null}
+        onOpenChange={(open) => !open && setRetakeConfirmationIndex(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ubah Foto?</DialogTitle>
+            <DialogDescription>
+              Apakah Anda yakin ingin mengambil ulang foto ini? Foto yang lama akan digantikan dengan foto baru.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRetakeConfirmationIndex(null)}
+            >
+              Batal
+            </Button>
+            <Button
+              onClick={() => {
+                if (retakeConfirmationIndex !== null) {
+                  onRetakePhoto(retakeConfirmationIndex);
+                  setRetakeConfirmationIndex(null);
+                }
+              }}
+            >
+              Ya, Ubah Foto
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </motion.section>
   );
 }

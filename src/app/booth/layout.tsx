@@ -13,7 +13,7 @@ export default function BoothLayout({
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
               <Camera className="h-5 w-5" />
             </span>
-            Lumen Booth
+            Booth Lab
           </div>
           <div className="flex items-center gap-3">
             <Button asChild variant="ghost" size="sm">

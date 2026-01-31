@@ -70,6 +70,7 @@ export default function BoothPage() {
     stopCamera,
     onPreviewVideoMount,
     startPhotoSession,
+    retakePhoto,
     resetSession,
   } = usePhotoSession();
   const {
@@ -83,6 +84,7 @@ export default function BoothPage() {
   // --- Local State ---
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateOption | null>(null);
   const [templateImage, setTemplateImage] = useState<HTMLImageElement | null>(null);
+  const [retakeIndex, setRetakeIndex] = useState<number | null>(null);
   const [selectedFilter, setSelectedFilter] = useState(filters[0].value);
   const [sessionTimeLeft, setSessionTimeLeft] = useState<number | null>(null);
   const [isVoucherDialogOpen, setIsVoucherDialogOpen] = useState(false);
@@ -108,6 +110,7 @@ export default function BoothPage() {
     dispatch({ type: "RESET" });
     setSelectedTemplate(null);
     setTemplateImage(null);
+    setRetakeIndex(null);
     setSelectedFilter(filters[0].value);
     setSessionTimeLeft(null);
     resetSession();
@@ -223,10 +226,6 @@ export default function BoothPage() {
       return;
     }
 
-    await goToStep("payment");
-  };
-
-  const proceedToTemplate = async () => {
     const templates = await loadTemplates();
     if (templates.length > 0) {
       const first = templates[0];
@@ -245,7 +244,18 @@ export default function BoothPage() {
     }
 
     dispatch({ type: "SET_PAYMENT_METHOD", method: method.name });
-    await proceedToTemplate();
+    
+    const transactionId = await createTransaction(
+      state.transaction.total_price, 
+      method.name, 
+      selectedTemplate?.id
+    );
+    
+    if (transactionId) {
+      dispatch({ type: "SET_TRANSACTION_ID", id: transactionId });
+    }
+
+    await goToStep("qris");
   };
 
   const handleVoucherSubmit = async (e?: React.FormEvent) => {
@@ -266,9 +276,22 @@ export default function BoothPage() {
          setVoucherCode(""); 
          
          const cashMethod = paymentMethods.find(m => m.type === 'cash');
-         dispatch({ type: "SET_PAYMENT_METHOD", method: cashMethod?.name || "Cash" });
+         const methodName = cashMethod?.name || "Cash";
+         dispatch({ type: "SET_PAYMENT_METHOD", method: methodName });
          
-         await proceedToTemplate();
+         const transactionId = await createTransaction(
+           state.transaction.total_price, 
+           methodName, 
+           selectedTemplate?.id
+         );
+         
+         if (transactionId) {
+           dispatch({ type: "SET_TRANSACTION_ID", id: transactionId });
+           await updateTransactionStatus(transactionId, "paid");
+         }
+
+         dispatch({ type: "SET_PAYMENT_STATUS", status: "paid" });
+         await goToStep("session");
       } else {
          // Use native alert or toast if available. Since we don't have toast imported here yet (or context), alert is fine.
          alert(data.error || "Invalid voucher");
@@ -283,7 +306,18 @@ export default function BoothPage() {
 
   const handleSelectNonCash = async (method: PaymentMethod) => {
     dispatch({ type: "SET_PAYMENT_METHOD", method: method.name });
-    await proceedToTemplate();
+    
+    const transactionId = await createTransaction(
+      state.transaction.total_price, 
+      method.name, 
+      selectedTemplate?.id
+    );
+    
+    if (transactionId) {
+      dispatch({ type: "SET_TRANSACTION_ID", id: transactionId });
+    }
+
+    await goToStep("qris");
   };
 
   const handleTemplateSelect = async (template: TemplateOption) => {
@@ -329,26 +363,25 @@ export default function BoothPage() {
     const total = pricing.basePrice + quantity * pricing.perPrintPrice;
     dispatch({ type: "SET_TOTAL_PRICE", total });
     
-    const transactionId = await createTransaction(
-      total, 
-      state.transaction.payment_method, 
-      selectedTemplate?.id
-    );
-    
-    if (transactionId) {
-      dispatch({ type: "SET_TRANSACTION_ID", id: transactionId });
+    // Check if Event mode is active
+    if (state.transaction.payment_method?.toLowerCase() === "event") {
+       const transactionId = await createTransaction(
+          total, 
+          state.transaction.payment_method, 
+          selectedTemplate?.id
+       );
+        
+       if (transactionId) {
+          dispatch({ type: "SET_TRANSACTION_ID", id: transactionId });
+          await updateTransactionStatus(transactionId, "paid");
+       }
+
+       dispatch({ type: "SET_PAYMENT_STATUS", status: "paid" });
+       await goToStep("session");
+       return;
     }
 
-    const method = state.transaction.payment_method?.toLowerCase();
-    if (method === "tunai" || method === "cash" || method === "event") {
-      dispatch({ type: "SET_PAYMENT_STATUS", status: "paid" });
-      if (transactionId) {
-        await updateTransactionStatus(transactionId, "paid");
-      }
-      await goToStep("session");
-      return;
-    }
-    await goToStep("qris");
+    await goToStep("payment");
   };
 
   const handleSimulatePaid = async () => {
@@ -359,10 +392,27 @@ export default function BoothPage() {
     await goToStep("session");
   };
 
+  const handleRetakePhotoRequest = (index: number) => {
+    setRetakeIndex(index);
+    goToStep("session");
+  };
+
+  const handleCancelRetake = () => {
+    setRetakeIndex(null);
+    goToStep("filter");
+  };
+
   const handleStartPhotoSession = async () => {
-    await startPhotoSession(selectedTemplate, templateImage, async () => {
-      await goToStep("filter");
-    });
+    if (retakeIndex !== null) {
+      await retakePhoto(retakeIndex, selectedTemplate, templateImage, async () => {
+        setRetakeIndex(null);
+        await goToStep("filter");
+      });
+    } else {
+      await startPhotoSession(selectedTemplate, templateImage, async () => {
+        await goToStep("filter");
+      });
+    }
   };
 
   const handleGenerateFinalImage = async () => {
@@ -488,6 +538,8 @@ export default function BoothPage() {
               startPhotoSession={handleStartPhotoSession}
               isCapturing={isCapturing}
               onGoToStep={goToStep}
+              retakeIndex={retakeIndex}
+              onCancelRetake={handleCancelRetake}
             />
           )}
 
@@ -501,6 +553,7 @@ export default function BoothPage() {
               onSelectFilter={setSelectedFilter}
               onGoToStep={goToStep}
               onGenerateFinalImage={handleGenerateFinalImage}
+              onRetakePhoto={handleRetakePhotoRequest}
             />
           )}
 
