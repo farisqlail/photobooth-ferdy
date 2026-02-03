@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -45,7 +46,7 @@ import { usePhotoSession } from "../../components/features/booth/hooks/usePhotoS
 import { useImageProcessing } from "../../components/features/booth/hooks/useImageProcessing";
 import { loadImage } from "../../components/features/booth/utils";
 
-export default function BoothPage() {
+function BoothContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const autoStart = searchParams.get("autoStart");
@@ -697,5 +698,20 @@ export default function BoothPage() {
           </>
         </div>
       </div>
+  );
+}
+
+export default function BoothPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex h-[90vh] w-full items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-black border-t-transparent" />
+          <p className="text-sm font-semibold text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    }>
+      <BoothContent />
+    </Suspense>
   );
 }
