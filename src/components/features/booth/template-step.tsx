@@ -75,7 +75,7 @@ export function TemplateStep({
                       key={template.id}
                       onClick={() => onSelectTemplate(template)}
                       className={cn(
-                        "group relative aspect-[3/4] w-full overflow-hidden rounded-2xl border-2 transition-all duration-300",
+                        "group relative aspect-[3/4] w-full overflow-hidden rounded-2xl border-2 transition-all duration-300 bg-zinc-50",
                         isSelected 
                           ? "border-black ring-4 ring-black/10 shadow-xl scale-[0.98]" 
                           : "border-zinc-100 hover:border-zinc-300 hover:shadow-lg"
@@ -85,7 +85,7 @@ export function TemplateStep({
                         src={template.url}
                         alt={template.name}
                         fill
-                        className="object-cover transition-transform duration-500 group-hover:scale-105"
+                        className="object-contain transition-transform duration-500 group-hover:scale-105"
                         unoptimized
                         priority={false}
                       />

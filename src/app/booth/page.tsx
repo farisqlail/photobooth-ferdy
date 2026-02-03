@@ -7,9 +7,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { AnimatePresence } from "framer-motion";
-import { Sparkles, Cloud } from "lucide-react";
+import { Sparkles, Cloud, Ticket } from "lucide-react";
 
 import {
   PaymentMethod,
@@ -46,6 +46,7 @@ import { useImageProcessing } from "../../components/features/booth/hooks/useIma
 import { loadImage } from "../../components/features/booth/utils";
 
 export default function BoothPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const autoStart = searchParams.get("autoStart");
   
@@ -134,6 +135,8 @@ export default function BoothPage() {
   // --- Effects ---
 
   // Handle finish timer
+  // Logic moved to FinishStep component
+  /*
   useEffect(() => {
     if (state.step === "finish") {
       finishTimerRef.current = window.setTimeout(() => {
@@ -147,6 +150,7 @@ export default function BoothPage() {
       }
     };
   }, [state.step, resetFlow]);
+  */
 
   // Handle session countdown
   useEffect(() => {
@@ -160,6 +164,7 @@ export default function BoothPage() {
 
     if (sessionTimeLeft <= 0) {
       resetFlow();
+      router.push("/");
       return;
     }
 
@@ -168,7 +173,7 @@ export default function BoothPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [sessionTimeLeft, resetFlow]);
+  }, [sessionTimeLeft, resetFlow, router]);
 
   // Load template image when selected template changes
   useEffect(() => {
@@ -219,9 +224,15 @@ export default function BoothPage() {
     }
     
     try {
-      await loadPricing();
-      const methods = await loadPaymentMethods();
+      // Parallelize data fetching to improve loading time
+      const [_, methods, templates] = await Promise.all([
+        loadPricing(),
+        loadPaymentMethods(),
+        loadTemplates()
+      ]);
+
       console.log("[handleStart] Payment methods loaded:", methods?.length);
+      console.log("[handleStart] Templates loaded:", templates?.length);
       
       // Check if "Event" is the ONLY active payment method
       // Note: methods can be undefined if something fails, so we check for array existence
@@ -229,28 +240,22 @@ export default function BoothPage() {
         console.log("[handleStart] Auto-selecting 'Event' payment method");
         dispatch({ type: "SET_PAYMENT_METHOD", method: methods[0].name });
         
-        const templates = await loadTemplates();
-        console.log("[handleStart] Templates loaded:", templates?.length);
-        if (templates.length > 0) {
+        if (templates && templates.length > 0) {
           const first = templates[0];
           setSelectedTemplate(first);
           dispatch({ type: "SET_TEMPLATE", templateId: first.id });
-          const image = await loadImage(first.url);
-          setTemplateImage(image);
+          loadImage(first.url).then(setTemplateImage).catch(e => console.error("Failed to preload template image", e));
         }
         console.log("[handleStart] Going to step: template");
         await goToStep("template");
         return;
       }
 
-      const templates = await loadTemplates();
-      console.log("[handleStart] Templates loaded (default flow):", templates?.length);
-      if (templates.length > 0) {
+      if (templates && templates.length > 0) {
         const first = templates[0];
         setSelectedTemplate(first);
         dispatch({ type: "SET_TEMPLATE", templateId: first.id });
-        const image = await loadImage(first.url);
-        setTemplateImage(image);
+        loadImage(first.url).then(setTemplateImage).catch(e => console.error("Failed to preload template image", e));
       }
       console.log("[handleStart] Going to step: template (default flow)");
       await goToStep("template");
@@ -489,31 +494,36 @@ export default function BoothPage() {
     if (retakeIndex !== null) {
       await retakePhoto(retakeIndex, selectedTemplate, templateImage, async () => {
         setRetakeIndex(null);
-        await goToStep("filter");
+        // Stay on session step to allow review
       });
     } else {
       await startPhotoSession(selectedTemplate, templateImage, async () => {
-        await goToStep("filter");
+        // Stay on session step to allow review
       });
     }
   };
 
   const handleGenerateFinalImage = async () => {
-    const result = await generateFinalImage({
-      capturedPhotos,
-      selectedTemplate,
-      templateImage,
-      selectedFilter,
-      transactionId: state.transaction.id,
-    });
-    
-    if (result) {
-        if (result.uploadedUrl) {
-             dispatch({ type: "SET_PHOTO_URL", url: result.uploadedUrl });
-        } else {
-             dispatch({ type: "SET_PHOTO_URL", url: result.finalUrl });
-        }
-      await goToStep("delivery");
+    try {
+      const result = await generateFinalImage({
+        capturedPhotos,
+        selectedTemplate,
+        templateImage,
+        selectedFilter,
+        transactionId: state.transaction.id,
+      });
+      
+      if (result) {
+          if (result.uploadedUrl) {
+               dispatch({ type: "SET_PHOTO_URL", url: result.uploadedUrl });
+          } else {
+               dispatch({ type: "SET_PHOTO_URL", url: result.finalUrl });
+          }
+        await goToStep("delivery");
+      }
+    } catch (error) {
+      console.error("Error generating final image:", error);
+      // Optional: Add UI feedback for error here
     }
   };
 
@@ -522,39 +532,8 @@ export default function BoothPage() {
   };
 
   return (
-    <div className="relative flex w-full max-w-6xl h-[90vh] flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+    <div className="relative flex w-full max-w-7xl h-[90vh] flex-col overflow-hidden">
       {/* Header */}
-      <header className="flex h-20 items-center justify-between border-b px-8 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/25">
-            <Sparkles className="h-6 w-6" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold leading-none tracking-tight">
-              Photobooth
-            </h1>
-            <p className="text-xs font-medium text-muted-foreground">
-              Capture your moment
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          {sessionTimeLeft !== null && (
-            <div className={`rounded-full px-4 py-1.5 text-sm font-bold backdrop-blur-sm transition-colors ${
-              sessionTimeLeft <= 60 
-                ? "bg-red-500/80 text-white animate-pulse" 
-                : "bg-primary/80 text-primary-foreground"
-            }`}>
-              {Math.floor(sessionTimeLeft / 60)}:{(sessionTimeLeft % 60).toString().padStart(2, '0')}
-            </div>
-          )}
-          <div className="rounded-full bg-secondary/50 px-4 py-1.5 text-sm font-medium text-secondary-foreground backdrop-blur-sm">
-            {stepLabel}
-          </div>
-          <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
-        </div>
-      </header>
-
       {/* Main Content */}
       <div className="flex-1 overflow-hidden p-6 relative">
         <>
@@ -621,6 +600,8 @@ export default function BoothPage() {
                   onGoToStep={goToStep}
                   retakeIndex={retakeIndex}
                   onCancelRetake={handleCancelRetake}
+                  sessionTimeLeft={sessionTimeLeft}
+                  onRetakePhoto={handleRetakePhotoRequest}
                 />
               )}
 
@@ -635,6 +616,8 @@ export default function BoothPage() {
                   onGoToStep={goToStep}
                   onGenerateFinalImage={handleGenerateFinalImage}
                   onRetakePhoto={handleRetakePhotoRequest}
+                  sessionTimeLeft={sessionTimeLeft}
+                  isProcessing={isUploading}
                 />
               )}
 
@@ -650,6 +633,7 @@ export default function BoothPage() {
                   capturedPhotos={capturedPhotos}
                   capturedVideos={capturedVideos}
                   supabase={supabase}
+                  sessionTimeLeft={sessionTimeLeft}
                 />
               )}
 
@@ -659,28 +643,54 @@ export default function BoothPage() {
             </AnimatePresence>
 
             <Dialog open={isVoucherDialogOpen} onOpenChange={setIsVoucherDialogOpen}>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Enter Voucher Code</DialogTitle>
-                  <DialogDescription>
-                    Please enter the voucher code provided by the operator.
-                  </DialogDescription>
+              <DialogContent className="sm:max-w-md rounded-[2.5rem] border-none p-8 shadow-2xl bg-white/95 backdrop-blur-xl">
+                <DialogHeader className="flex flex-col items-center justify-center text-center space-y-4">
+                  <div className="flex h-20 w-20 items-center justify-center rounded-full bg-zinc-100 mb-2">
+                    <Ticket className="h-10 w-10 text-black" />
+                  </div>
+                  <div>
+                    <DialogTitle className="text-3xl font-black tracking-tight text-black">
+                      Enter Voucher
+                    </DialogTitle>
+                    <DialogDescription className="text-zinc-500 font-medium text-base mt-2">
+                      Masukkan kode voucher yang diberikan operator
+                    </DialogDescription>
+                  </div>
                 </DialogHeader>
-                <form onSubmit={handleVoucherSubmit} className="space-y-4">
-                  <Input
-                    placeholder="PH-XXXX"
-                    value={voucherCode}
-                    onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
-                    autoFocus
-                  />
-                  <DialogFooter>
-                    <Button type="button" variant="outline" onClick={() => setIsVoucherDialogOpen(false)}>
-                      Cancel
+                <form onSubmit={handleVoucherSubmit} className="space-y-6 mt-4">
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="XXXX-XXXX"
+                      value={voucherCode}
+                      onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+                      autoFocus
+                      className="h-20 text-center text-3xl font-black tracking-widest uppercase rounded-2xl border-2 border-zinc-200 bg-zinc-50 text-black placeholder:text-zinc-400 focus:bg-white focus:border-black focus:ring-4 focus:ring-black/5 transition-all"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      onClick={() => setIsVoucherDialogOpen(false)}
+                      className="h-14 rounded-full border-2 text-base font-bold text-black hover:bg-zinc-100"
+                    >
+                      Batal
                     </Button>
-                    <Button type="submit" disabled={verifyingVoucher || !voucherCode}>
-                      {verifyingVoucher ? "Verifying..." : "Validate"}
+                    <Button 
+                      type="submit" 
+                      disabled={verifyingVoucher || !voucherCode}
+                      className="h-14 rounded-full bg-black text-base font-bold text-white hover:bg-zinc-800 shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all"
+                    >
+                      {verifyingVoucher ? (
+                        <span className="flex items-center gap-2">
+                          <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          Verifying...
+                        </span>
+                      ) : (
+                        "Gunakan Voucher"
+                      )}
                     </Button>
-                  </DialogFooter>
+                  </div>
                 </form>
               </DialogContent>
             </Dialog>

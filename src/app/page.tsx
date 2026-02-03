@@ -1,8 +1,19 @@
+"use client";
+
+import { useEffect } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Cloud, Mountain } from "lucide-react";
+import { Cloud } from "lucide-react";
+import { useBoothData } from "@/components/features/booth/hooks/useBoothData";
+import Image from "next/image";
 
 export default function Home() {
+  const { pricing, loadPricing } = useBoothData();
+
+  useEffect(() => {
+    loadPricing();
+  }, [loadPricing]);
+
   return (
     <div className="flex h-screen w-full flex-col bg-gradient-to-br from-orange-400 via-gray-200 to-blue-400 font-sans">
       {/* Top Color Strip */}
@@ -20,21 +31,33 @@ export default function Home() {
           {/* Checkered Frame */}
           <div className="relative mb-8 flex aspect-[4/3] w-full max-w-md items-center justify-center overflow-hidden border-[12px] border-[#333] bg-sky-200 p-1 shadow-inner">
              {/* Decorative Dots Pattern on Border (Simulated with dashed border) */}
-             <div className="absolute inset-0 border-[4px] border-dashed border-white/30 pointer-events-none"></div>
+             <div className="absolute inset-0 border-[4px] border-dashed border-white/30 pointer-events-none z-10"></div>
              
-             {/* Illustration */}
-             <div className="relative h-full w-full overflow-hidden bg-[#87CEEB]">
-               {/* Clouds */}
-               <Cloud className="absolute left-10 top-10 h-16 w-16 text-white opacity-90" fill="white" />
-               <Cloud className="absolute right-20 top-16 h-12 w-12 text-white opacity-80" fill="white" />
-               <Cloud className="absolute left-1/2 top-8 h-20 w-20 -translate-x-1/2 text-white" fill="white" />
-               
-               {/* Hills */}
-               <div className="absolute bottom-0 h-1/2 w-full">
-                 <div className="absolute bottom-0 left-0 h-full w-[120%] -translate-x-10 rounded-tr-[100%] bg-[#7CB342]" />
-                 <div className="absolute bottom-0 right-0 h-[80%] w-[120%] translate-x-10 rounded-tl-[100%] bg-[#558B2F]" />
+             {pricing.homeImageUrl ? (
+               <div className="relative h-full w-full overflow-hidden bg-white">
+                 <Image 
+                   src={pricing.homeImageUrl} 
+                   alt="Booth Illustration" 
+                   fill 
+                   className="object-cover"
+                   priority
+                 />
                </div>
-             </div>
+             ) : (
+               /* Illustration */
+               <div className="relative h-full w-full overflow-hidden bg-[#87CEEB]">
+                 {/* Clouds */}
+                 <Cloud className="absolute left-10 top-10 h-16 w-16 text-white opacity-90" fill="white" />
+                 <Cloud className="absolute right-20 top-16 h-12 w-12 text-white opacity-80" fill="white" />
+                 <Cloud className="absolute left-1/2 top-8 h-20 w-20 -translate-x-1/2 text-white" fill="white" />
+                 
+                 {/* Hills */}
+                 <div className="absolute bottom-0 h-1/2 w-full">
+                   <div className="absolute bottom-0 left-0 h-full w-[120%] -translate-x-10 rounded-tr-[100%] bg-[#7CB342]" />
+                   <div className="absolute bottom-0 right-0 h-[80%] w-[120%] translate-x-10 rounded-tl-[100%] bg-[#558B2F]" />
+                 </div>
+               </div>
+             )}
           </div>
 
           {/* Retro Logo */}

@@ -1,8 +1,7 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Loader2, Mail, Printer, QrCode, Download, Camera, Video, Film, Images } from "lucide-react";
+import { Loader2, Mail, Printer, QrCode, Film, Images, CheckCircle2, Share2, Download } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
@@ -10,6 +9,7 @@ import { Step, TransactionData } from "./types";
 import { mergeVideos } from "@/lib/video-utils";
 import { createGif } from "@/lib/gif-utils";
 import { SupabaseClient } from "@supabase/supabase-js";
+import { cn } from "@/lib/utils";
 
 interface DeliveryStepProps {
   finalPreviewUrl: string | null;
@@ -21,6 +21,7 @@ interface DeliveryStepProps {
   capturedPhotos?: string[];
   capturedVideos?: string[];
   supabase: SupabaseClient | null;
+  sessionTimeLeft?: number | null;
 }
 
 export function DeliveryStep({
@@ -33,6 +34,7 @@ export function DeliveryStep({
   capturedPhotos = [],
   capturedVideos = [],
   supabase,
+  sessionTimeLeft,
 }: DeliveryStepProps) {
   const [isMerging, setIsMerging] = useState(false);
   const [localQrUrl, setLocalQrUrl] = useState<string | null>(null);
@@ -45,6 +47,13 @@ export function DeliveryStep({
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [emailErrorMessage, setEmailErrorMessage] = useState<string>("");
+
+  // Format session time
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
 
   // Generate GIF on mount
   useEffect(() => {
@@ -173,24 +182,6 @@ export function DeliveryStep({
     }
   };
 
-  const downloadPhoto = (url: string, index: number) => {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `photo-session-${index + 1}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const downloadVideo = (url: string, index: number) => {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `live-photo-${index + 1}.webm`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   const handleDownloadMergedVideo = async () => {
     if (capturedVideos.length === 0) return;
     
@@ -213,146 +204,205 @@ export function DeliveryStep({
   };
 
   return (
-    <motion.section
+    <motion.div
       key="delivery"
-      className="flex min-h-[calc(100vh-14rem)] flex-col items-center justify-center gap-6"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ duration: 0.5 }}
+      className="flex h-full w-full gap-4 p-2"
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ duration: 0.3 }}
     >
-      <Card className="w-full max-w-5xl">
-        <CardContent className="grid gap-6 p-6 md:grid-cols-[1.2fr_0.8fr]">
-          <div className="flex flex-col gap-4">
-            <div className="print-area relative w-full overflow-hidden rounded-2xl border border-border bg-black aspect-[3/4]">
-              {finalPreviewUrl ? (
-                <Image
-                  src={finalPreviewUrl}
-                  alt="Final"
-                  fill
-                  unoptimized
-                  className="object-contain"
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                  Memproses hasil foto.
+      {/* COLUMN 1: Preview */}
+      <div className="relative flex-1 w-full overflow-hidden rounded-[2rem] bg-zinc-900/50 p-8 shadow-xl border border-zinc-800 flex items-center justify-center backdrop-blur-sm">
+          {finalPreviewUrl ? (
+             <div className="relative h-full w-full flex items-center justify-center">
+                 <div 
+                    style={{
+                        position: "relative",
+                        height: "100%",
+                        width: "auto",
+                        aspectRatio: "3/4", // Assuming standard photo strip/print ratio, adjust if needed based on actual image
+                        boxShadow: "0 0 50px -12px rgba(0, 0, 0, 0.5)"
+                    }}
+                >
+                    <Image
+                      src={finalPreviewUrl}
+                      alt="Final"
+                      fill
+                      unoptimized
+                      className="object-contain"
+                    />
                 </div>
-              )}
+             </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-zinc-400">
+              <Loader2 className="h-8 w-8 animate-spin" />
+              <p className="text-sm font-medium">Memproses hasil foto...</p>
             </div>
+          )}
+      </div>
+
+      {/* COLUMN 2: Controls Sidebar */}
+      <div className="flex w-[35%] flex-col rounded-[2rem] bg-black p-6 shadow-2xl text-white justify-between h-full border border-zinc-800/50">
+          
+          {/* Top: Header */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800">
+                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                    </div>
+                    <h2 className="text-2xl font-bold">Ambil Foto</h2>
+                </div>
+                
+                {sessionTimeLeft !== null && sessionTimeLeft !== undefined && (
+                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800">
+                        <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                        <span className="text-sm font-mono font-bold text-red-500">{formatTime(sessionTimeLeft)}</span>
+                    </div>
+                )}
+            </div>
+            <p className="text-zinc-400 text-sm mb-6">
+                Scan QR code untuk mengunduh softcopy, atau kirim via email.
+            </p>
           </div>
 
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <QrCode className="h-4 w-4" />
-              Scan QR untuk Download
-            </div>
-            {localQrUrl ? (
-               <QRCodeCanvas value={localQrUrl} size={180} />
-            ) : storageUrl ? (
-              storageUrl.startsWith("data:") ? (
-                <div className="flex h-[180px] w-[180px] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-muted-foreground/25 bg-muted/50 p-4 text-center text-sm text-muted-foreground">
-                  <QrCode className="h-8 w-8 opacity-20" />
-                  <p>QR Code tidak tersedia (Offline)</p>
-                </div>
-              ) : (
-                <div className="flex h-[180px] w-[180px] items-center justify-center gap-2 text-sm text-muted-foreground">
-                   <Loader2 className="h-4 w-4 animate-spin" />
-                   Generating Link...
-                </div>
-              )
-            ) : isUploading ? (
-              <div className="flex h-[180px] w-[180px] items-center justify-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Menyiapkan file...
+          {/* Middle: Content */}
+          <div className="flex-1 overflow-y-auto pr-2 -mr-2 mb-6 custom-scrollbar space-y-6">
+              
+              {/* QR Code Section */}
+              <div className="rounded-2xl bg-zinc-900/50 p-4 border border-zinc-800 flex flex-col items-center gap-3">
+                   <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 uppercase tracking-wider w-full">
+                      <QrCode className="h-3 w-3" />
+                      Scan untuk Download
+                   </div>
+                   
+                   <div className="p-2 bg-white rounded-xl">
+                        {localQrUrl ? (
+                            <QRCodeCanvas value={localQrUrl} size={150} />
+                        ) : (
+                            <div className="h-[150px] w-[150px] flex items-center justify-center bg-zinc-100 rounded-lg">
+                                <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+                            </div>
+                        )}
+                   </div>
+                   
+                   {isUploading && (
+                       <span className="text-[10px] text-zinc-500 flex items-center gap-1">
+                           <Loader2 className="h-3 w-3 animate-spin" />
+                           Mengunggah cloud...
+                       </span>
+                   )}
               </div>
-            ) : (
-              <div className="flex h-[180px] w-[180px] items-center justify-center gap-2 rounded-lg border border-destructive/20 bg-destructive/10 p-4 text-center text-sm text-destructive">
-                Gagal memuat QR Code
-              </div>
-            )}
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Mail className="h-4 w-4" />
-              Kirim lewat Email
-            </div>
-            <div className="flex w-full max-w-sm items-center space-x-2">
-                <Input
-                  placeholder="Email pelanggan"
-                  value={transaction.email ?? ""}
-                  onChange={(event) => onSetEmail(event.target.value)}
-                />
-                <Button 
-                    onClick={handleSendEmail} 
-                    disabled={isSendingEmail || !transaction.email}
-                    size="icon"
-                >
-                    {isSendingEmail ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                        <Mail className="h-4 w-4" />
+
+              {/* Email Section */}
+              <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                      <Mail className="h-3 w-3" />
+                      Kirim via Email
+                   </div>
+                   <div className="flex gap-2">
+                        <Input
+                            placeholder="Email kamu..."
+                            value={transaction.email ?? ""}
+                            onChange={(event) => onSetEmail(event.target.value)}
+                            className="bg-zinc-900 border-zinc-800 text-white placeholder:text-zinc-600 focus-visible:ring-white/20 rounded-xl h-11"
+                        />
+                        <Button 
+                            onClick={handleSendEmail} 
+                            disabled={isSendingEmail || !transaction.email}
+                            size="icon"
+                            className="h-11 w-11 shrink-0 rounded-xl bg-white text-black hover:bg-zinc-200"
+                        >
+                            {isSendingEmail ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                                <Share2 className="h-4 w-4" />
+                            )}
+                        </Button>
+                   </div>
+                   {emailStatus === 'success' && (
+                        <p className="text-xs text-green-500 flex items-center gap-1">
+                            <CheckCircle2 className="h-3 w-3" /> Email terkirim!
+                        </p>
                     )}
-                </Button>
-            </div>
-            {emailStatus === 'success' && (
-                <p className="text-sm text-green-500">Email berhasil dikirim!</p>
-            )}
-            {emailStatus === 'error' && (
-                <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                   <p className="font-medium">Gagal mengirim email</p>
-                   <p className="mt-1 text-xs opacity-90">{emailErrorMessage}</p>
-                </div>
-            )}
-            <Button onClick={() => window.print()}>
-              <Printer className="h-4 w-4" />
+                    {emailStatus === 'error' && (
+                        <p className="text-xs text-red-500">{emailErrorMessage}</p>
+                    )}
+              </div>
+
+              {/* Additional Downloads */}
+              <div className="space-y-3">
+                 <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 uppercase tracking-wider">
+                      <Download className="h-3 w-3" />
+                      Download Lainnya
+                   </div>
+                   <div className="grid grid-cols-2 gap-2">
+                        {capturedVideos.length > 0 && (
+                            <Button 
+                                variant="outline" 
+                                className="h-auto py-3 flex flex-col gap-1 border-zinc-800 bg-zinc-900/30 hover:bg-zinc-800 hover:text-white rounded-xl"
+                                onClick={handleDownloadMergedVideo}
+                                disabled={isMerging}
+                            >
+                                {isMerging ? (
+                                <Loader2 className="h-4 w-4 animate-spin mb-1" />
+                                ) : (
+                                <Film className="h-4 w-4 mb-1" />
+                                )}
+                                <span className="text-[10px]">Live Video</span>
+                            </Button>
+                        )}
+
+                        {(gifUrl || isGeneratingGif) && (
+                            <Button 
+                                variant="outline" 
+                                className="h-auto py-3 flex flex-col gap-1 border-zinc-800 bg-zinc-900/30 hover:bg-zinc-800 hover:text-white rounded-xl"
+                                onClick={() => {
+                                if (gifUrl) {
+                                    const link = document.createElement('a');
+                                    link.href = gifUrl;
+                                    link.download = `photobooth-animation.gif`;
+                                    document.body.appendChild(link);
+                                    link.click();
+                                    document.body.removeChild(link);
+                                }
+                                }}
+                                disabled={isGeneratingGif}
+                            >
+                                {isGeneratingGif ? (
+                                <Loader2 className="h-4 w-4 animate-spin mb-1" />
+                                ) : (
+                                <Images className="h-4 w-4 mb-1" />
+                                )}
+                                <span className="text-[10px]">GIF Animation</span>
+                            </Button>
+                        )}
+                   </div>
+              </div>
+
+          </div>
+
+          {/* Bottom: Action Buttons */}
+          <div className="flex flex-col gap-3 mt-auto pt-4 border-t border-zinc-900">
+             <Button 
+                onClick={() => window.print()}
+                variant="outline"
+                className="w-full h-12 rounded-full border-zinc-700 bg-transparent text-white hover:bg-zinc-800 hover:text-white font-bold"
+            >
+              <Printer className="mr-2 h-4 w-4" />
               Cetak Foto
             </Button>
-            {capturedVideos.length > 0 && (
-              <Button 
-                variant="outline" 
-                onClick={handleDownloadMergedVideo}
-                disabled={isMerging}
-              >
-                {isMerging ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Film className="h-4 w-4" />
-                )}
-                {isMerging ? "Menggabungkan..." : "Download Live Video (All)"}
-              </Button>
-            )}
-            {(gifUrl || isGeneratingGif) && (
-              <Button 
-                variant="outline" 
-                onClick={() => {
-                  if (gifUrl) {
-                    const link = document.createElement('a');
-                    link.href = gifUrl;
-                    link.download = `photobooth-animation.gif`;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                  }
-                }}
-                disabled={isGeneratingGif}
-              >
-                {isGeneratingGif ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Images className="h-4 w-4" />
-                )}
-                {isGeneratingGif ? "Membuat GIF..." : "Download GIF Animation"}
-              </Button>
-            )}
-            <Button variant="secondary" onClick={() => onGoToStep("finish")}>
-              Selesai
+            <Button
+                size="lg"
+                className="w-full h-14 rounded-full bg-white text-black hover:bg-zinc-200 font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] transition-all hover:scale-[1.02]"
+                onClick={() => onGoToStep("finish")}
+            >
+                Selesai
             </Button>
-            {isUploading && (
-              <span className="text-xs text-muted-foreground">
-                Mengunggah ke Supabase...
-              </span>
-            )}
           </div>
-        </CardContent>
-      </Card>
-    </motion.section>
+
+      </div>
+    </motion.div>
   );
 }

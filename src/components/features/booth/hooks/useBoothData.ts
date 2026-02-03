@@ -20,7 +20,12 @@ export function useBoothData() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [nonCashMethods, setNonCashMethods] = useState<PaymentMethod[]>([]);
   const [templates, setTemplates] = useState<TemplateOption[]>([]);
-  const [pricing, setPricing] = useState({ basePrice: 20000, perPrintPrice: 5000, sessionCountdown: 300 });
+  const [pricing, setPricing] = useState({ 
+    basePrice: 20000, 
+    perPrintPrice: 5000, 
+    sessionCountdown: 300,
+    homeImageUrl: null as string | null
+  });
 
   const loadPaymentMethods = useCallback(async () => {
     if (!supabase) {
@@ -59,17 +64,17 @@ export function useBoothData() {
       return;
     }
     
-    // Try to select with session_countdown
+    // Try to select with session_countdown and home_image_url
     const { data, error } = await supabase
       .from("pricing_settings")
-      .select("id,base_price,per_print_price,session_countdown,updated_at")
+      .select("id,base_price,per_print_price,session_countdown,home_image_url,updated_at")
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle();
 
     if (error && error.code === "PGRST200") {
         // Fallback if column doesn't exist
-        console.warn("session_countdown column missing, using default.");
+        console.warn("session_countdown or home_image_url column missing, using default.");
         const { data: fallbackData } = await supabase
           .from("pricing_settings")
           .select("id,base_price,per_print_price,updated_at")
@@ -82,16 +87,30 @@ export function useBoothData() {
                 basePrice: Number(fallbackData.base_price),
                 perPrintPrice: Number(fallbackData.per_print_price),
                 sessionCountdown: 300,
+                homeImageUrl: null,
             });
         }
         return;
     }
 
     if (data) {
+      let homeImageUrl = null;
+      if (data.home_image_url) {
+        if (data.home_image_url.startsWith("http")) {
+            homeImageUrl = data.home_image_url;
+        } else {
+             const { data: signedData } = await supabase.storage
+                .from("templates")
+                .createSignedUrl(data.home_image_url, 3600);
+             homeImageUrl = signedData?.signedUrl ?? null;
+        }
+      }
+
       setPricing({
         basePrice: Number(data.base_price),
         perPrintPrice: Number(data.per_print_price),
         sessionCountdown: data.session_countdown ? Number(data.session_countdown) : 300,
+        homeImageUrl,
       });
     }
   }, [supabase]);
