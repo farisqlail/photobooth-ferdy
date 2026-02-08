@@ -1,10 +1,10 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Mail, Printer, QrCode, Film, Images, CheckCircle2, Share2, Download } from "lucide-react";
+import { Loader2, Mail, QrCode, CheckCircle2, Share2 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Step, TransactionData } from "./types";
 import { mergeVideos } from "@/lib/video-utils";
 import { createGif } from "@/lib/gif-utils";
@@ -36,7 +36,6 @@ export function DeliveryStep({
   supabase,
   sessionTimeLeft,
 }: DeliveryStepProps) {
-  const [isMerging, setIsMerging] = useState(false);
   const [localQrUrl, setLocalQrUrl] = useState<string | null>(null);
   const [gifUrl, setGifUrl] = useState<string | null>(null);
   const [isGeneratingGif, setIsGeneratingGif] = useState(false);
@@ -47,6 +46,45 @@ export function DeliveryStep({
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [emailErrorMessage, setEmailErrorMessage] = useState<string>("");
+  
+  const hasPrintedRef = useRef(false);
+
+  // Auto print when finalPreviewUrl is ready
+  useEffect(() => {
+    if (finalPreviewUrl && !hasPrintedRef.current) {
+        hasPrintedRef.current = true;
+        
+        const printImage = async () => {
+             // Prefer storageUrl (remote) for server-side printing
+             // If not available, we can't easily server-print a blob: url
+             const urlToPrint = storageUrl;
+
+             if (urlToPrint) {
+                 try {
+                     const res = await fetch('/api/print', {
+                         method: 'POST',
+                         headers: { 'Content-Type': 'application/json' },
+                         body: JSON.stringify({ url: urlToPrint })
+                     });
+                     if (res.ok) {
+                         console.log("Printed via server");
+                         return; // Success
+                     }
+                 } catch (e) {
+                     console.error("Server print failed", e);
+                 }
+             }
+
+             // Fallback to window.print() if server print fails or no URL
+             console.log("Falling back to window.print()");
+             window.print();
+        };
+
+        // Small delay to ensure image is ready/uploaded
+        const timer = setTimeout(printImage, 1500);
+        return () => clearTimeout(timer);
+    }
+  }, [finalPreviewUrl, storageUrl]);
 
   // Format session time
   const formatTime = (seconds: number) => {
@@ -182,27 +220,6 @@ export function DeliveryStep({
     }
   };
 
-  const handleDownloadMergedVideo = async () => {
-    if (capturedVideos.length === 0) return;
-    
-    try {
-      setIsMerging(true);
-      const mergedUrl = await mergeVideos(capturedVideos);
-      
-      const link = document.createElement('a');
-      link.href = mergedUrl;
-      link.download = `photobooth-session-video.webm`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (error) {
-      console.error("Failed to merge videos:", error);
-      alert("Gagal menggabungkan video. Silakan coba lagi.");
-    } finally {
-      setIsMerging(false);
-    }
-  };
-
   return (
     <motion.div
       key="delivery"
@@ -217,6 +234,7 @@ export function DeliveryStep({
           {finalPreviewUrl ? (
              <div className="relative h-full w-full flex items-center justify-center">
                  <div 
+                    className="print-area"
                     style={{
                         position: "relative",
                         height: "100%",
@@ -331,68 +349,10 @@ export function DeliveryStep({
                     )}
               </div>
 
-              {/* Additional Downloads */}
-              <div className="space-y-3">
-                 <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                      <Download className="h-3 w-3" />
-                      Download Lainnya
-                   </div>
-                   <div className="grid grid-cols-2 gap-2">
-                        {capturedVideos.length > 0 && (
-                            <Button 
-                                variant="outline" 
-                                className="h-auto py-3 flex flex-col gap-1 border-zinc-800 bg-zinc-900/30 hover:bg-zinc-800 hover:text-white rounded-xl"
-                                onClick={handleDownloadMergedVideo}
-                                disabled={isMerging}
-                            >
-                                {isMerging ? (
-                                <Loader2 className="h-4 w-4 animate-spin mb-1" />
-                                ) : (
-                                <Film className="h-4 w-4 mb-1" />
-                                )}
-                                <span className="text-[10px]">Live Video</span>
-                            </Button>
-                        )}
-
-                        {(gifUrl || isGeneratingGif) && (
-                            <Button 
-                                variant="outline" 
-                                className="h-auto py-3 flex flex-col gap-1 border-zinc-800 bg-zinc-900/30 hover:bg-zinc-800 hover:text-white rounded-xl"
-                                onClick={() => {
-                                if (gifUrl) {
-                                    const link = document.createElement('a');
-                                    link.href = gifUrl;
-                                    link.download = `photobooth-animation.gif`;
-                                    document.body.appendChild(link);
-                                    link.click();
-                                    document.body.removeChild(link);
-                                }
-                                }}
-                                disabled={isGeneratingGif}
-                            >
-                                {isGeneratingGif ? (
-                                <Loader2 className="h-4 w-4 animate-spin mb-1" />
-                                ) : (
-                                <Images className="h-4 w-4 mb-1" />
-                                )}
-                                <span className="text-[10px]">GIF Animation</span>
-                            </Button>
-                        )}
-                   </div>
-              </div>
-
           </div>
 
           {/* Bottom: Action Buttons */}
           <div className="flex flex-col gap-3 mt-auto pt-4 border-t border-zinc-900">
-             <Button 
-                onClick={() => window.print()}
-                variant="outline"
-                className="w-full h-12 rounded-full border-zinc-700 bg-transparent text-white hover:bg-zinc-800 hover:text-white font-bold"
-            >
-              <Printer className="mr-2 h-4 w-4" />
-              Cetak Foto
-            </Button>
             <Button
                 size="lg"
                 className="w-full h-14 rounded-full bg-white text-black hover:bg-zinc-200 font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] transition-all hover:scale-[1.02]"
