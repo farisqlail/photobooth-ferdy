@@ -49,42 +49,40 @@ export function DeliveryStep({
   
   const hasPrintedRef = useRef(false);
 
-  // Auto print when finalPreviewUrl is ready
+  // Auto print when storageUrl is ready
   useEffect(() => {
-    if (finalPreviewUrl && !hasPrintedRef.current) {
+    if (storageUrl && !hasPrintedRef.current) {
         hasPrintedRef.current = true;
         
         const printImage = async () => {
-             // Prefer storageUrl (remote) for server-side printing
-             // If not available, we can't easily server-print a blob: url
-             const urlToPrint = storageUrl;
-
-             if (urlToPrint) {
-                 try {
-                     const res = await fetch('/api/print', {
-                         method: 'POST',
-                         headers: { 'Content-Type': 'application/json' },
-                         body: JSON.stringify({ url: urlToPrint })
-                     });
-                     if (res.ok) {
-                         console.log("Printed via server");
-                         return; // Success
-                     }
-                 } catch (e) {
-                     console.error("Server print failed", e);
+             console.log("Attempting server print...");
+             
+             // Try server-side print first
+             try {
+                 const res = await fetch('/api/print', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({ url: storageUrl })
+                 });
+                 if (res.ok) {
+                     console.log("Printed via server");
+                     return; // Success, do NOT window.print()
                  }
+             } catch (e) {
+                 console.error("Server print failed", e);
              }
 
-             // Fallback to window.print() if server print fails or no URL
-             console.log("Falling back to window.print()");
+             // Only fallback to window.print() if server print explicitly failed
+             // And maybe we want to disable this fallback if the user REALLY doesn't want popups?
+             // But for reliability, let's keep it but ensure it only runs on failure.
+             console.warn("Server print failed, falling back to window.print()");
              window.print();
         };
 
-        // Small delay to ensure image is ready/uploaded
-        const timer = setTimeout(printImage, 1500);
-        return () => clearTimeout(timer);
+        // Execute print
+        printImage();
     }
-  }, [finalPreviewUrl, storageUrl]);
+  }, [storageUrl]);
 
   // Format session time
   const formatTime = (seconds: number) => {
@@ -180,13 +178,24 @@ export function DeliveryStep({
 
 
   const handleSendEmail = async () => {
-    if (!transaction.email || !storageUrl) return;
+    if (!transaction.email) {
+        setEmailStatus('error');
+        setEmailErrorMessage("Mohon isi alamat email.");
+        return;
+    }
+    
+    if (!storageUrl) {
+        setEmailStatus('error');
+        setEmailErrorMessage("Foto belum siap diunggah. Mohon tunggu sebentar.");
+        return;
+    }
 
     setIsSendingEmail(true);
     setEmailStatus('idle');
     setEmailErrorMessage("");
 
     try {
+        console.log("Sending email to:", transaction.email, "URL:", storageUrl);
         const response = await fetch('/api/send-email', {
             method: 'POST',
             headers: {
@@ -203,9 +212,11 @@ export function DeliveryStep({
         const result = await response.json();
 
         if (!response.ok) {
+            console.error("Email API Error:", result);
             throw new Error(result.error || 'Failed to send email');
         }
 
+        console.log("Email sent successfully:", result);
         setEmailStatus('success');
     } catch (error) {
         console.error("Failed to send email", error);
