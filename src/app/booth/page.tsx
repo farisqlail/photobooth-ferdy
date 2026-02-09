@@ -18,6 +18,8 @@ import {
   TemplateOption,
 } from "../../components/features/booth/types";
 import { filters } from "../../components/features/booth/constants";
+import { createGif } from "@/lib/gif-utils";
+import { mergeVideos } from "@/lib/video-utils";
 
 import {
   Dialog,
@@ -98,6 +100,13 @@ function BoothContent() {
 
   const [isAutoStarting, setIsAutoStarting] = useState(false);
 
+  // --- Asset Generation State ---
+  const [gifDownloadUrl, setGifDownloadUrl] = useState<string | null>(null);
+  const [videoDownloadUrl, setVideoDownloadUrl] = useState<string | null>(null);
+  const [gifUploadStatus, setGifUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
+  const [videoUploadStatus, setVideoUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
+  const [gifUrl, setGifUrl] = useState<string | null>(null); // Local blob url for GIF
+
   // --- Refs ---
   const finishTimerRef = useRef<number | null>(null);
 
@@ -122,6 +131,12 @@ function BoothContent() {
     setSessionTimeLeft(null);
     resetSession();
     resetImages();
+    // Reset assets
+    setGifDownloadUrl(null);
+    setVideoDownloadUrl(null);
+    setGifUploadStatus('idle');
+    setVideoUploadStatus('idle');
+    setGifUrl(null);
     // Note: We don't clear templates/payment methods data as they are global/cached
   }, [dispatch, resetSession, resetImages, clearFinishTimer]);
 
@@ -134,6 +149,98 @@ function BoothContent() {
   };
 
   // --- Effects ---
+
+  // Trigger asset generation when we have photos and are past the session step
+  useEffect(() => {
+    // Only start if we have photos/videos, transaction ID, and we are not in session step (so capturing is done)
+    // We can start as early as "filter" step or "delivery" step
+    const canStart = (state.step === "filter" || state.step === "delivery") && 
+                     capturedPhotos.length > 0 && 
+                     state.transaction?.id;
+
+    if (!canStart || !supabase) return;
+
+    // 1. Video Upload
+    if (capturedVideos.length > 0 && videoUploadStatus === 'idle') {
+        setVideoUploadStatus('uploading');
+        const uploadVideo = async () => {
+            try {
+                // Check if we need to merge locally
+                const mergedUrl = await mergeVideos(capturedVideos); // This returns blob url
+                const response = await fetch(mergedUrl);
+                const blob = await response.blob();
+                
+                const filePath = `transactions/${state.transaction.id}/video.webm`;
+                const { error } = await supabase.storage.from("captures").upload(filePath, blob, { contentType: "video/webm", upsert: true });
+                
+                if (!error) {
+                    const { data } = await supabase.storage.from("captures").createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
+                    if (data?.signedUrl) {
+                        setVideoDownloadUrl(data.signedUrl);
+                        setVideoUploadStatus('success');
+                    } else {
+                        setVideoUploadStatus('error');
+                    }
+                } else {
+                    console.error("Video storage upload failed", error);
+                    setVideoUploadStatus('error');
+                }
+            } catch (e) {
+                console.error("Background video merge/upload failed", e);
+                setVideoUploadStatus('error');
+            }
+        };
+        uploadVideo();
+    }
+
+    // 2. GIF Generation and Upload
+    if (gifUploadStatus === 'idle') {
+        setGifUploadStatus('uploading');
+        const uploadGif = async () => {
+             try {
+                let currentGifUrl = gifUrl;
+                
+                // If gifUrl not ready yet, try to generate it now
+                if (!currentGifUrl) {
+                   try {
+                     currentGifUrl = await createGif(capturedPhotos);
+                     setGifUrl(currentGifUrl);
+                   } catch (err) {
+                     console.error("JIT GIF generation failed", err);
+                     setGifUploadStatus('error');
+                   }
+                }
+
+                if (currentGifUrl) {
+                    const response = await fetch(currentGifUrl);
+                    const blob = await response.blob();
+                    
+                    const filePath = `transactions/${state.transaction.id}/animation.gif`;
+                    const { error } = await supabase.storage.from("captures").upload(filePath, blob, { contentType: "image/gif", upsert: true });
+                    
+                    if (!error) {
+                        const { data } = await supabase.storage.from("captures").createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
+                        if (data?.signedUrl) {
+                            setGifDownloadUrl(data.signedUrl);
+                            setGifUploadStatus('success');
+                        } else {
+                            setGifUploadStatus('error');
+                        }
+                    } else {
+                        console.error("GIF storage upload failed", error);
+                        setGifUploadStatus('error');
+                    }
+                } else {
+                    setGifUploadStatus('error');
+                }
+             } catch (e) {
+                 console.error("GIF upload failed", e);
+                 setGifUploadStatus('error');
+             }
+        };
+        uploadGif();
+    }
+  }, [state.step, capturedPhotos, capturedVideos, state.transaction?.id, supabase, videoUploadStatus, gifUploadStatus, gifUrl]);
 
   // Handle finish timer
   // Logic moved to FinishStep component
@@ -483,6 +590,12 @@ function BoothContent() {
 
   const handleRetakePhotoRequest = (index: number) => {
     setRetakeIndex(index);
+    // Reset assets on retake as photos will change
+    setGifDownloadUrl(null);
+    setVideoDownloadUrl(null);
+    setGifUploadStatus('idle');
+    setVideoUploadStatus('idle');
+    setGifUrl(null);
     goToStep("session");
   };
 
@@ -635,6 +748,10 @@ function BoothContent() {
                   capturedVideos={capturedVideos}
                   supabase={supabase}
                   sessionTimeLeft={sessionTimeLeft}
+                  gifDownloadUrl={gifDownloadUrl}
+                  videoDownloadUrl={videoDownloadUrl}
+                  gifUploadStatus={gifUploadStatus}
+                  videoUploadStatus={videoUploadStatus}
                 />
               )}
 

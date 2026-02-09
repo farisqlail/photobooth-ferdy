@@ -17,11 +17,14 @@ export async function POST(request: Request) {
        return NextResponse.json({ error: 'Configuration Missing: SMTP_USER or SMTP_PASSWORD not found.' }, { status: 500 });
     }
 
+    // Clean password (remove spaces/hyphens if user copied them)
+    const cleanPass = smtpPass.replace(/[^a-zA-Z0-9]/g, '');
+
     const transporter = nodemailer.createTransport({
         service: 'gmail',
         auth: {
             user: smtpUser,
-            pass: smtpPass
+            pass: cleanPass
         }
     });
 
@@ -34,12 +37,12 @@ export async function POST(request: Request) {
           <h1 style="text-align: center; color: #333;">Here are your photos!</h1>
           <p style="text-align: center; color: #666;">Thank you for using our Photobooth. Click the buttons below to download your captures:</p>
           
-          <div style="margin: 30px 0; display: flex; flex-direction: column; gap: 10px;">
-            <a href="${photoUrl}" style="display: block; padding: 15px; background: #000; color: #fff; text-decoration: none; text-align: center; border-radius: 8px; font-weight: bold;">Download Photo</a>
+          <div style="margin: 30px 0;">
+            <a href="${photoUrl}" style="display: block; margin-bottom: 20px; padding: 15px; background: #000; color: #fff; text-decoration: none; text-align: center; border-radius: 8px; font-weight: bold;">Download Photo</a>
             
-            ${gifUrl ? `<a href="${gifUrl}" style="display: block; padding: 15px; background: #444; color: #fff; text-decoration: none; text-align: center; border-radius: 8px; font-weight: bold;">Download GIF Animation</a>` : ''}
+            ${gifUrl ? `<a href="${gifUrl}" style="display: block; margin-bottom: 20px; padding: 15px; background: #444; color: #fff; text-decoration: none; text-align: center; border-radius: 8px; font-weight: bold;">Download GIF Photo</a>` : ''}
             
-            ${videoUrl ? `<a href="${videoUrl}" style="display: block; padding: 15px; background: #444; color: #fff; text-decoration: none; text-align: center; border-radius: 8px; font-weight: bold;">Download Live Video</a>` : ''}
+            ${videoUrl ? `<a href="${videoUrl}" style="display: block; margin-bottom: 20px; padding: 15px; background: #444; color: #fff; text-decoration: none; text-align: center; border-radius: 8px; font-weight: bold;">Download Live Photo</a>` : ''}
           </div>
 
           <p style="text-align: center; font-size: 12px; color: #999;">Note: These links are valid for 7 days.</p>

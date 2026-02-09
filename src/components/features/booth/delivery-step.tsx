@@ -6,8 +6,6 @@ import { QRCodeCanvas } from "qrcode.react";
 import { motion } from "framer-motion";
 import { useEffect, useState, useRef } from "react";
 import { Step, TransactionData } from "./types";
-import { mergeVideos } from "@/lib/video-utils";
-import { createGif } from "@/lib/gif-utils";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +20,10 @@ interface DeliveryStepProps {
   capturedVideos?: string[];
   supabase: SupabaseClient | null;
   sessionTimeLeft?: number | null;
+  gifDownloadUrl: string | null;
+  videoDownloadUrl: string | null;
+  gifUploadStatus: 'idle' | 'uploading' | 'success' | 'error';
+  videoUploadStatus: 'idle' | 'uploading' | 'success' | 'error';
 }
 
 export function DeliveryStep({
@@ -35,14 +37,14 @@ export function DeliveryStep({
   capturedVideos = [],
   supabase,
   sessionTimeLeft,
+  gifDownloadUrl,
+  videoDownloadUrl,
+  gifUploadStatus,
+  videoUploadStatus,
 }: DeliveryStepProps) {
   const [localQrUrl, setLocalQrUrl] = useState<string | null>(null);
-  const [gifUrl, setGifUrl] = useState<string | null>(null);
-  const [isGeneratingGif, setIsGeneratingGif] = useState(false);
   
   // State for email assets
-  const [videoDownloadUrl, setVideoDownloadUrl] = useState<string | null>(null);
-  const [gifDownloadUrl, setGifDownloadUrl] = useState<string | null>(null);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [emailErrorMessage, setEmailErrorMessage] = useState<string>("");
@@ -91,90 +93,13 @@ export function DeliveryStep({
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Generate GIF on mount
-  useEffect(() => {
-    if (capturedPhotos.length > 0 && !gifUrl && !isGeneratingGif) {
-        setIsGeneratingGif(true);
-        createGif(capturedPhotos)
-            .then(url => {
-                setGifUrl(url);
-            })
-            .catch(e => console.error("GIF generation failed", e))
-            .finally(() => setIsGeneratingGif(false));
-    }
-  }, [capturedPhotos, gifUrl, isGeneratingGif]);
-
-  // Handle auto-upload and QR code generation
+  // Handle QR code generation
   useEffect(() => {
     // 1. Set QR Code URL immediately to the download page
     if (transaction.id && !localQrUrl) {
         setLocalQrUrl(`${window.location.origin}/download/${transaction.id}`);
     }
-
-    const uploadAssets = async () => {
-        if (!supabase || !transaction.id) return;
-
-        // 2. Upload Video if available and not yet uploaded
-        if (capturedVideos.length > 0 && !videoDownloadUrl) {
-            try {
-                // Check if we need to merge locally
-                const mergedUrl = await mergeVideos(capturedVideos); // This returns blob url
-                const response = await fetch(mergedUrl);
-                const blob = await response.blob();
-                
-                const filePath = `transactions/${transaction.id}/video.webm`;
-                const { error } = await supabase.storage.from("captures").upload(filePath, blob, { contentType: "video/webm", upsert: true });
-                
-                if (!error) {
-                    const { data } = await supabase.storage.from("captures").createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
-                    if (data?.signedUrl) {
-                        setVideoDownloadUrl(data.signedUrl);
-                    }
-                }
-            } catch (e) {
-                console.error("Background video merge/upload failed", e);
-            }
-        }
-
-        // 3. Upload GIF if available and not yet uploaded
-        // We check gifUrl (which comes from createGif effect) or generate it JIT
-        if (capturedPhotos.length > 0 && !gifDownloadUrl) {
-             try {
-                let currentGifUrl = gifUrl;
-                
-                // If gifUrl not ready yet, try to generate it now
-                if (!currentGifUrl) {
-                   try {
-                     currentGifUrl = await createGif(capturedPhotos);
-                     setGifUrl(currentGifUrl);
-                   } catch (err) {
-                     console.error("JIT GIF generation failed", err);
-                   }
-                }
-
-                if (currentGifUrl) {
-                    const response = await fetch(currentGifUrl);
-                    const blob = await response.blob();
-                    
-                    const filePath = `transactions/${transaction.id}/animation.gif`;
-                    const { error } = await supabase.storage.from("captures").upload(filePath, blob, { contentType: "image/gif", upsert: true });
-                    
-                    if (!error) {
-                        const { data } = await supabase.storage.from("captures").createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
-                        if (data?.signedUrl) {
-                            setGifDownloadUrl(data.signedUrl);
-                        }
-                    }
-                }
-             } catch (e) {
-                 console.error("GIF upload failed", e);
-             }
-        }
-    };
-    
-    uploadAssets();
-
-  }, [capturedVideos, capturedPhotos, localQrUrl, gifUrl, supabase, transaction.id, videoDownloadUrl, gifDownloadUrl]);
+  }, [transaction.id, localQrUrl]);
 
 
   const handleSendEmail = async () => {
@@ -188,6 +113,20 @@ export function DeliveryStep({
         setEmailStatus('error');
         setEmailErrorMessage("Foto belum siap diunggah. Mohon tunggu sebentar.");
         return;
+    }
+
+    // Block email sending ONLY if GIF is currently uploading
+    if (capturedPhotos.length > 0 && gifUploadStatus === 'uploading') {
+         setEmailStatus('error');
+         setEmailErrorMessage("Sedang menyiapkan animasi GIF. Mohon tunggu beberapa detik lagi.");
+         return;
+    }
+
+    // Block email sending ONLY if Video is currently uploading
+    if (capturedVideos.length > 0 && videoUploadStatus === 'uploading') {
+         setEmailStatus('error');
+         setEmailErrorMessage("Sedang menyiapkan Live Video. Mohon tunggu beberapa detik lagi.");
+         return;
     }
 
     setIsSendingEmail(true);
