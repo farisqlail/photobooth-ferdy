@@ -1,13 +1,11 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Mail, Printer, QrCode, Film, Images, CheckCircle2, Share2, Download } from "lucide-react";
+import { Loader2, Mail, QrCode, CheckCircle2, Share2 } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Step, TransactionData } from "./types";
-import { mergeVideos } from "@/lib/video-utils";
-import { createGif } from "@/lib/gif-utils";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +20,10 @@ interface DeliveryStepProps {
   capturedVideos?: string[];
   supabase: SupabaseClient | null;
   sessionTimeLeft?: number | null;
+  gifDownloadUrl: string | null;
+  videoDownloadUrl: string | null;
+  gifUploadStatus: 'idle' | 'uploading' | 'success' | 'error';
+  videoUploadStatus: 'idle' | 'uploading' | 'success' | 'error';
 }
 
 export function DeliveryStep({
@@ -35,18 +37,54 @@ export function DeliveryStep({
   capturedVideos = [],
   supabase,
   sessionTimeLeft,
+  gifDownloadUrl,
+  videoDownloadUrl,
+  gifUploadStatus,
+  videoUploadStatus,
 }: DeliveryStepProps) {
-  const [isMerging, setIsMerging] = useState(false);
   const [localQrUrl, setLocalQrUrl] = useState<string | null>(null);
-  const [gifUrl, setGifUrl] = useState<string | null>(null);
-  const [isGeneratingGif, setIsGeneratingGif] = useState(false);
   
   // State for email assets
-  const [videoDownloadUrl, setVideoDownloadUrl] = useState<string | null>(null);
-  const [gifDownloadUrl, setGifDownloadUrl] = useState<string | null>(null);
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [emailErrorMessage, setEmailErrorMessage] = useState<string>("");
+  
+  const hasPrintedRef = useRef(false);
+
+  // Auto print when storageUrl is ready
+  useEffect(() => {
+    if (storageUrl && !hasPrintedRef.current) {
+        hasPrintedRef.current = true;
+        
+        const printImage = async () => {
+             console.log("Attempting server print...");
+             
+             // Try server-side print first
+             try {
+                 const res = await fetch('/api/print', {
+                     method: 'POST',
+                     headers: { 'Content-Type': 'application/json' },
+                     body: JSON.stringify({ url: storageUrl })
+                 });
+                 if (res.ok) {
+                     console.log("Printed via server");
+                     return; // Success, do NOT window.print()
+                 }
+             } catch (e) {
+                 console.error("Server print failed", e);
+             }
+
+             // Only fallback to window.print() if server print explicitly failed
+             // And maybe we want to disable this fallback if the user REALLY doesn't want popups?
+             // But for reliability, let's keep it but ensure it only runs on failure.
+             console.warn("Server print failed, falling back to window.print()");
+             window.print();
+        };
+
+        // Execute print
+        printImage();
+    }
+  }, [storageUrl]);
 
   // Format session time
   const formatTime = (seconds: number) => {
@@ -55,100 +93,48 @@ export function DeliveryStep({
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Generate GIF on mount
-  useEffect(() => {
-    if (capturedPhotos.length > 0 && !gifUrl && !isGeneratingGif) {
-        setIsGeneratingGif(true);
-        createGif(capturedPhotos)
-            .then(url => {
-                setGifUrl(url);
-            })
-            .catch(e => console.error("GIF generation failed", e))
-            .finally(() => setIsGeneratingGif(false));
-    }
-  }, [capturedPhotos, gifUrl, isGeneratingGif]);
-
-  // Handle auto-upload and QR code generation
+  // Handle QR code generation
   useEffect(() => {
     // 1. Set QR Code URL immediately to the download page
     if (transaction.id && !localQrUrl) {
         setLocalQrUrl(`${window.location.origin}/download/${transaction.id}`);
     }
-
-    const uploadAssets = async () => {
-        if (!supabase || !transaction.id) return;
-
-        // 2. Upload Video if available and not yet uploaded
-        if (capturedVideos.length > 0 && !videoDownloadUrl) {
-            try {
-                // Check if we need to merge locally
-                const mergedUrl = await mergeVideos(capturedVideos); // This returns blob url
-                const response = await fetch(mergedUrl);
-                const blob = await response.blob();
-                
-                const filePath = `transactions/${transaction.id}/video.webm`;
-                const { error } = await supabase.storage.from("captures").upload(filePath, blob, { contentType: "video/webm", upsert: true });
-                
-                if (!error) {
-                    const { data } = await supabase.storage.from("captures").createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
-                    if (data?.signedUrl) {
-                        setVideoDownloadUrl(data.signedUrl);
-                    }
-                }
-            } catch (e) {
-                console.error("Background video merge/upload failed", e);
-            }
-        }
-
-        // 3. Upload GIF if available and not yet uploaded
-        // We check gifUrl (which comes from createGif effect) or generate it JIT
-        if (capturedPhotos.length > 0 && !gifDownloadUrl) {
-             try {
-                let currentGifUrl = gifUrl;
-                
-                // If gifUrl not ready yet, try to generate it now
-                if (!currentGifUrl) {
-                   try {
-                     currentGifUrl = await createGif(capturedPhotos);
-                     setGifUrl(currentGifUrl);
-                   } catch (err) {
-                     console.error("JIT GIF generation failed", err);
-                   }
-                }
-
-                if (currentGifUrl) {
-                    const response = await fetch(currentGifUrl);
-                    const blob = await response.blob();
-                    
-                    const filePath = `transactions/${transaction.id}/animation.gif`;
-                    const { error } = await supabase.storage.from("captures").upload(filePath, blob, { contentType: "image/gif", upsert: true });
-                    
-                    if (!error) {
-                        const { data } = await supabase.storage.from("captures").createSignedUrl(filePath, 3600 * 24 * 7); // 1 week
-                        if (data?.signedUrl) {
-                            setGifDownloadUrl(data.signedUrl);
-                        }
-                    }
-                }
-             } catch (e) {
-                 console.error("GIF upload failed", e);
-             }
-        }
-    };
-    
-    uploadAssets();
-
-  }, [capturedVideos, capturedPhotos, localQrUrl, gifUrl, supabase, transaction.id, videoDownloadUrl, gifDownloadUrl]);
+  }, [transaction.id, localQrUrl]);
 
 
   const handleSendEmail = async () => {
-    if (!transaction.email || !storageUrl) return;
+    if (!transaction.email) {
+        setEmailStatus('error');
+        setEmailErrorMessage("Mohon isi alamat email.");
+        return;
+    }
+    
+    if (!storageUrl) {
+        setEmailStatus('error');
+        setEmailErrorMessage("Foto belum siap diunggah. Mohon tunggu sebentar.");
+        return;
+    }
+
+    // Block email sending ONLY if GIF is currently uploading
+    if (capturedPhotos.length > 0 && gifUploadStatus === 'uploading') {
+         setEmailStatus('error');
+         setEmailErrorMessage("Sedang menyiapkan animasi GIF. Mohon tunggu beberapa detik lagi.");
+         return;
+    }
+
+    // Block email sending ONLY if Video is currently uploading
+    if (capturedVideos.length > 0 && videoUploadStatus === 'uploading') {
+         setEmailStatus('error');
+         setEmailErrorMessage("Sedang menyiapkan Live Video. Mohon tunggu beberapa detik lagi.");
+         return;
+    }
 
     setIsSendingEmail(true);
     setEmailStatus('idle');
     setEmailErrorMessage("");
 
     try {
+        console.log("Sending email to:", transaction.email, "URL:", storageUrl);
         const response = await fetch('/api/send-email', {
             method: 'POST',
             headers: {
@@ -165,9 +151,11 @@ export function DeliveryStep({
         const result = await response.json();
 
         if (!response.ok) {
+            console.error("Email API Error:", result);
             throw new Error(result.error || 'Failed to send email');
         }
 
+        console.log("Email sent successfully:", result);
         setEmailStatus('success');
     } catch (error) {
         console.error("Failed to send email", error);
@@ -179,27 +167,6 @@ export function DeliveryStep({
         }
     } finally {
         setIsSendingEmail(false);
-    }
-  };
-
-  const handleDownloadMergedVideo = async () => {
-    if (capturedVideos.length === 0) return;
-    
-    try {
-      setIsMerging(true);
-      const mergedUrl = await mergeVideos(capturedVideos);
-      
-      const link = document.createElement('a');
-      link.href = mergedUrl;
-      link.download = `photobooth-session-video.webm`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (error) {
-      console.error("Failed to merge videos:", error);
-      alert("Gagal menggabungkan video. Silakan coba lagi.");
-    } finally {
-      setIsMerging(false);
     }
   };
 
@@ -217,6 +184,7 @@ export function DeliveryStep({
           {finalPreviewUrl ? (
              <div className="relative h-full w-full flex items-center justify-center">
                  <div 
+                    className="print-area"
                     style={{
                         position: "relative",
                         height: "100%",
@@ -331,68 +299,10 @@ export function DeliveryStep({
                     )}
               </div>
 
-              {/* Additional Downloads */}
-              <div className="space-y-3">
-                 <div className="flex items-center gap-2 text-xs font-bold text-zinc-400 uppercase tracking-wider">
-                      <Download className="h-3 w-3" />
-                      Download Lainnya
-                   </div>
-                   <div className="grid grid-cols-2 gap-2">
-                        {capturedVideos.length > 0 && (
-                            <Button 
-                                variant="outline" 
-                                className="h-auto py-3 flex flex-col gap-1 border-zinc-800 bg-zinc-900/30 hover:bg-zinc-800 hover:text-white rounded-xl"
-                                onClick={handleDownloadMergedVideo}
-                                disabled={isMerging}
-                            >
-                                {isMerging ? (
-                                <Loader2 className="h-4 w-4 animate-spin mb-1" />
-                                ) : (
-                                <Film className="h-4 w-4 mb-1" />
-                                )}
-                                <span className="text-[10px]">Live Video</span>
-                            </Button>
-                        )}
-
-                        {(gifUrl || isGeneratingGif) && (
-                            <Button 
-                                variant="outline" 
-                                className="h-auto py-3 flex flex-col gap-1 border-zinc-800 bg-zinc-900/30 hover:bg-zinc-800 hover:text-white rounded-xl"
-                                onClick={() => {
-                                if (gifUrl) {
-                                    const link = document.createElement('a');
-                                    link.href = gifUrl;
-                                    link.download = `photobooth-animation.gif`;
-                                    document.body.appendChild(link);
-                                    link.click();
-                                    document.body.removeChild(link);
-                                }
-                                }}
-                                disabled={isGeneratingGif}
-                            >
-                                {isGeneratingGif ? (
-                                <Loader2 className="h-4 w-4 animate-spin mb-1" />
-                                ) : (
-                                <Images className="h-4 w-4 mb-1" />
-                                )}
-                                <span className="text-[10px]">GIF Animation</span>
-                            </Button>
-                        )}
-                   </div>
-              </div>
-
           </div>
 
           {/* Bottom: Action Buttons */}
           <div className="flex flex-col gap-3 mt-auto pt-4 border-t border-zinc-900">
-             <Button 
-                onClick={() => window.print()}
-                variant="outline"
-                className="w-full h-12 rounded-full border-zinc-700 bg-transparent text-white hover:bg-zinc-800 hover:text-white font-bold"
-            >
-              <Printer className="mr-2 h-4 w-4" />
-              Cetak Foto
-            </Button>
             <Button
                 size="lg"
                 className="w-full h-14 rounded-full bg-white text-black hover:bg-zinc-200 font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] transition-all hover:scale-[1.02]"
