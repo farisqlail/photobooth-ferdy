@@ -63,49 +63,7 @@ export default function AdminSettingsPage() {
     }
   };
 
-  // Printer Settings State
-  const [printers, setPrinters] = useState<{ Name: string }[]>([]);
-  const [selectedPrinter, setSelectedPrinter] = useState<string>("");
-  const [loadingPrinters, setLoadingPrinters] = useState(false);
 
-  useEffect(() => {
-    const fetchPrinters = async () => {
-        setLoadingPrinters(true);
-        try {
-            const [printersRes, configRes] = await Promise.all([
-                fetch('/api/system/printers'),
-                fetch('/api/system/printer-config')
-            ]);
-            
-            if (printersRes.ok) {
-                const data = await printersRes.json();
-                setPrinters(Array.isArray(data) ? data : []);
-            }
-            
-            if (configRes.ok) {
-                const config = await configRes.json();
-                if (config.printerName) setSelectedPrinter(config.printerName);
-            }
-        } catch (e) {
-            console.error("Failed to load printer settings", e);
-        } finally {
-            setLoadingPrinters(false);
-        }
-    };
-    fetchPrinters();
-  }, []);
-
-  const savePrinterSettings = async () => {
-    try {
-        await fetch('/api/system/printer-config', {
-            method: 'POST',
-            body: JSON.stringify({ printerName: selectedPrinter })
-        });
-        showToast({ variant: "success", message: "Pengaturan printer disimpan" });
-    } catch (e) {
-        showToast({ variant: "error", message: "Gagal menyimpan pengaturan printer" });
-    }
-  };
 
   const [loading, setLoading] = useState(true);
   const [supabaseState] = useState(() => {
@@ -265,42 +223,7 @@ export default function AdminSettingsPage() {
         </Card>
       </div>
 
-      <Card>
-          <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                  <Printer className="h-5 w-5" />
-                  Printer Manager
-              </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                  <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                      Pilih Printer Aktif
-                  </span>
-                  <div className="flex gap-4 items-center">
-                      <select
-                          className="flex h-10 w-full max-w-md rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                          value={selectedPrinter}
-                          onChange={(e) => setSelectedPrinter(e.target.value)}
-                          disabled={loadingPrinters}
-                      >
-                          <option value="">-- Pilih Printer --</option>
-                          {printers.map((p) => (
-                              <option key={p.Name} value={p.Name}>
-                                  {p.Name}
-                              </option>
-                          ))}
-                      </select>
-                      <Button onClick={savePrinterSettings} disabled={loadingPrinters}>
-                          Simpan
-                      </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                      Printer ini akan digunakan untuk mencetak foto secara otomatis tanpa popup dialog.
-                  </p>
-              </div>
-          </CardContent>
-      </Card>
+
     </div>
   );
 }
