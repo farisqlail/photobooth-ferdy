@@ -1,9 +1,9 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { Camera, RefreshCw, Check, ArrowRight, ChevronLeft } from "lucide-react";
+import { Camera, RefreshCw, Check, ArrowRight, ChevronLeft, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Step, TemplateOption } from "./types";
-import { RefObject } from "react";
+import { RefObject, useState } from "react";
 import { cn } from "@/lib/utils";
 
 interface SessionStepProps {
@@ -36,6 +36,7 @@ export function SessionStep({
   const isRetakeMode = retakeIndex !== null && retakeIndex !== undefined;
   const totalSlots = selectedTemplate?.slots_config?.length || 3;
   const currentSlot = capturedPhotos.length + 1;
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Format session time
   const formatTime = (seconds: number) => {
@@ -44,15 +45,28 @@ export function SessionStep({
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const handleContinue = () => {
+    setIsProcessing(true);
+    onGoToStep("filter");
+  };
+
   return (
     <motion.div
       key="session"
-      className="flex h-full w-full gap-4 p-2"
+      className="relative flex h-full w-full gap-4 p-2"
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.3 }}
     >
+      {/* Loading Overlay */}
+      {isProcessing && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/80 backdrop-blur-md rounded-[2rem]">
+          <Loader2 className="h-16 w-16 animate-spin text-white mb-4" />
+          <p className="text-white text-xl font-bold animate-pulse">Memproses foto...</p>
+        </div>
+      )}
+
       {/* COLUMN 1: Main Camera Feed */}
       <div className="relative flex-1 overflow-hidden rounded-[2rem] bg-black shadow-2xl border border-zinc-800">
         <video
@@ -187,7 +201,7 @@ export function SessionStep({
                 size="lg"
                 className="w-full h-16 rounded-full bg-yellow-500 text-black hover:bg-yellow-400 font-bold text-lg shadow-[0_0_20px_rgba(234,179,8,0.2)] hover:shadow-[0_0_30px_rgba(234,179,8,0.3)] transition-all"
                 onClick={startPhotoSession}
-                disabled={isCapturing}
+                disabled={isCapturing || isProcessing}
               >
                 <Camera className="mr-2 h-6 w-6" />
                 {isCapturing ? "Processing..." : "Ambil Ulang"}
@@ -196,7 +210,7 @@ export function SessionStep({
                 variant="outline"
                 className="w-full h-12 rounded-full border-zinc-700 text-white hover:bg-zinc-800 hover:text-white"
                 onClick={onCancelRetake}
-                disabled={isCapturing}
+                disabled={isCapturing || isProcessing}
               >
                 Batal
               </Button>
@@ -205,34 +219,27 @@ export function SessionStep({
             <div className="flex flex-col gap-3">
               <Button
                 size="lg"
+                disabled={isProcessing}
                 className="w-full h-16 rounded-full bg-white text-black hover:bg-zinc-200 font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] transition-all"
-                onClick={() => onGoToStep("filter")}
+                onClick={handleContinue}
               >
-                Lanjut Filter
-                <ArrowRight className="ml-2 h-6 w-6" />
+                {isProcessing ? (
+                   <>
+                     <Loader2 className="mr-2 h-6 w-6 animate-spin" />
+                     Memproses...
+                   </>
+                ) : (
+                   <>
+                     Lanjut Filter
+                     <ArrowRight className="ml-2 h-6 w-6" />
+                   </>
+                )}
               </Button>
               <Button
                 variant="outline"
+                disabled={isProcessing}
                 className="w-full h-12 rounded-full border-red-500/50 text-red-500 hover:bg-red-500/10 hover:text-red-400"
-                onClick={startPhotoSession} // Logic for re-doing whole session needs check? 
-                // Wait, original logic was: 
-                // onClick={startPhotoSession} with text "Ulangi Sesi".
-                // But usually "Ulangi Sesi" means clear all photos. 
-                // The original code called startPhotoSession which might just take the next photo or reset?
-                // Looking at usePhotoSession hook usage in page.tsx:
-                // resetSession() is called in resetFlow.
-                // startPhotoSession just starts countdown.
-                // If photos are full, startPhotoSession might overwrite? 
-                // Let's assume the user wants to retake all. 
-                // Actually, if full, we probably want a specific "Reset" action, but let's stick to original behavior for now.
-                // Original: onClick={startPhotoSession} -> "Ulangi Sesi"
-                // But wait, if I click "Ulangi Sesi", it calls startPhotoSession. 
-                // Does it clear photos?
-                // Let's look at page.tsx again...
-                // handleStartPhotoSession calls startPhotoSession.
-                // If I am fully captured, I should probably reset first.
-                // But the user didn't ask to fix logic, just UI.
-                // I'll keep the handler same as original for "Ulangi Sesi".
+                onClick={startPhotoSession} 
               >
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Foto Ulang Semua
@@ -244,7 +251,7 @@ export function SessionStep({
                 size="lg"
                 className="w-full h-16 rounded-full bg-white text-black hover:bg-zinc-200 font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] transition-all hover:scale-[1.02]"
                 onClick={startPhotoSession}
-                disabled={isCapturing}
+                disabled={isCapturing || isProcessing}
               >
                 <Camera className="mr-2 h-6 w-6" />
                 {isCapturing ? "Processing..." : capturedPhotos.length === 0 ? "Mulai Foto" : "Foto Selanjutnya"}

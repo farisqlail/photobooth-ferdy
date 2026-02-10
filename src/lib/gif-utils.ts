@@ -25,6 +25,8 @@ export async function createGif(imageUrls: string[], delay: number = 500): Promi
       const img = await loadImage(url);
       ctx.drawImage(img, 0, 0, width, height);
       encoder.addFrame(ctx);
+      // Yield to main thread to allow UI updates (animations)
+      await new Promise(resolve => setTimeout(resolve, 0));
     }
 
     encoder.finish();

@@ -21,7 +21,7 @@ export default function BoothLayout({
       {/* Footer */}
       <footer className="flex w-full flex-col items-center pb-4">
         <p className="mb-2 text-sm font-semibold text-gray-800 drop-shadow-sm">
-          powered by <span className="font-bold">Boothlab.id</span>
+          powered by <span className="font-bold">PESONALAB</span>
         </p>
         {/* Bottom Color Strip */}
         <div className="flex h-4 w-full">

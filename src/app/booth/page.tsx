@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { AnimatePresence } from "framer-motion";
-import { Sparkles, Cloud, Ticket } from "lucide-react";
+import { Sparkles, Cloud, Ticket, CameraOff } from "lucide-react";
 
 import {
   PaymentMethod,
@@ -33,6 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
 import { PaymentStep } from "../../components/features/booth/payment-step";
+import { PackageStep } from "../../components/features/booth/package-step";
 import { NonCashStep } from "../../components/features/booth/non-cash-step";
 import { TemplateStep } from "../../components/features/booth/template-step";
 import { QuantityStep } from "../../components/features/booth/quantity-step";
@@ -109,6 +110,23 @@ function BoothContent() {
 
   // --- Refs ---
   const finishTimerRef = useRef<number | null>(null);
+
+  const isEventMode = useMemo(() => {
+    return paymentMethods.some((m) => m.name.toLowerCase() === "event" && m.is_active);
+  }, [paymentMethods]);
+
+  const effectivePricing = useMemo(() => {
+    if (isEventMode) {
+      return {
+        ...pricing,
+        price2d: 0,
+        price4r: 0,
+        perPrintPrice2d: 0,
+        perPrintPrice4r: 0,
+      };
+    }
+    return pricing;
+  }, [pricing, isEventMode]);
 
   // --- Effects ---
 
@@ -323,6 +341,11 @@ function BoothContent() {
 
   // --- Handlers ---
 
+  const handlePackageSelect = async (packageType: "2d" | "4r") => {
+    dispatch({ type: "SET_PACKAGE_TYPE", packageType });
+    await goToStep("template");
+  };
+
   const handleStart = useCallback(async () => {
     console.log("[handleStart] Triggered");
     
@@ -354,8 +377,8 @@ function BoothContent() {
           dispatch({ type: "SET_TEMPLATE", templateId: first.id });
           loadImage(first.url).then(setTemplateImage).catch(e => console.error("Failed to preload template image", e));
         }
-        console.log("[handleStart] Going to step: template");
-        await goToStep("template");
+        console.log("[handleStart] Going to step: package");
+        await goToStep("package");
         return;
       }
 
@@ -365,8 +388,8 @@ function BoothContent() {
         dispatch({ type: "SET_TEMPLATE", templateId: first.id });
         loadImage(first.url).then(setTemplateImage).catch(e => console.error("Failed to preload template image", e));
       }
-      console.log("[handleStart] Going to step: template (default flow)");
-      await goToStep("template");
+      console.log("[handleStart] Going to step: package (default flow)");
+      await goToStep("package");
     } catch (error) {
         console.error("[handleStart] Error starting session:", error);
     } finally {
@@ -375,6 +398,47 @@ function BoothContent() {
   }, [dispatch, loadPricing, loadPaymentMethods, loadTemplates, goToStep, setSelectedTemplate, setTemplateImage, autoStart]);
 
   const hasAutoStarted = useRef(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [cameraError, setCameraError] = useState(false);
+
+  useEffect(() => {
+    if (isAutoStarting) {
+      let stream: MediaStream | null = null;
+      const startCamera = async () => {
+        try {
+          setCameraError(false);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+               width: { ideal: 1280 },
+               height: { ideal: 720 },
+               aspectRatio: { ideal: 4/3 }
+            },
+            audio: false,
+          });
+          
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            try {
+              await videoRef.current.play();
+            } catch (e) {
+              console.error("Error playing video:", e);
+            }
+          }
+        } catch (err) {
+          console.error("Error accessing camera:", err);
+          setCameraError(true);
+        }
+      };
+
+      startCamera();
+
+      return () => {
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+      };
+    }
+  }, [isAutoStarting]);
 
   useEffect(() => {
     if (autoStart === "true" && state.step === "idle" && !hasAutoStarted.current) {
@@ -389,23 +453,27 @@ function BoothContent() {
     return (
       <div className="relative flex w-full max-w-2xl flex-col items-center overflow-hidden rounded-xl bg-white p-8 shadow-2xl">
         
-        {/* Checkered Frame */}
-        <div className="relative mb-8 flex aspect-[4/3] w-full max-w-md items-center justify-center overflow-hidden border-[12px] border-[#333] bg-sky-200 p-1 shadow-inner">
+        {/* Checkered Frame with Live Camera */}
+        <div className="relative mb-8 flex aspect-[4/3] w-full max-w-md items-center justify-center overflow-hidden border-[12px] border-[#333] bg-black p-1 shadow-inner">
            {/* Decorative Dots Pattern on Border */}
-           <div className="absolute inset-0 border-[4px] border-dashed border-white/30 pointer-events-none"></div>
+           <div className="absolute inset-0 border-[4px] border-dashed border-white/30 pointer-events-none z-10"></div>
            
-           {/* Illustration */}
-           <div className="relative h-full w-full overflow-hidden bg-[#87CEEB]">
-             {/* Clouds */}
-             <Cloud className="absolute left-10 top-10 h-16 w-16 text-white opacity-90" fill="white" />
-             <Cloud className="absolute right-20 top-16 h-12 w-12 text-white opacity-80" fill="white" />
-             <Cloud className="absolute left-1/2 top-8 h-20 w-20 -translate-x-1/2 text-white" fill="white" />
-             
-             {/* Hills */}
-             <div className="absolute bottom-0 h-1/2 w-full">
-               <div className="absolute bottom-0 left-0 h-full w-[120%] -translate-x-10 rounded-tr-[100%] bg-[#7CB342]" />
-               <div className="absolute bottom-0 right-0 h-[80%] w-[120%] translate-x-10 rounded-tl-[100%] bg-[#558B2F]" />
-             </div>
+           <div className="relative h-full w-full overflow-hidden bg-black">
+             {cameraError ? (
+               <div className="flex h-full w-full flex-col items-center justify-center bg-zinc-900 text-white">
+                 <CameraOff className="h-16 w-16 opacity-50 mb-2" />
+                 <p className="text-sm opacity-70">Camera access failed</p>
+               </div>
+             ) : (
+               <video 
+                 ref={videoRef}
+                 autoPlay 
+                 playsInline 
+                 muted
+                 onLoadedMetadata={() => videoRef.current?.play()}
+                 className="h-full w-full object-cover transform scale-x-[-1]" 
+               />
+             )}
            </div>
         </div>
 
@@ -420,7 +488,7 @@ function BoothContent() {
               `,
               WebkitTextStroke: "2px black"
             }}>
-          BOOTHLAB
+          PESONALAB 
         </h1>
 
         {/* Loading Indicator */}
@@ -444,7 +512,8 @@ function BoothContent() {
     const transactionId = await createTransaction(
       state.transaction.total_price, 
       method.name, 
-      selectedTemplate?.id
+      selectedTemplate?.id,
+      state.transaction.package_type
     );
     
     if (transactionId) {
@@ -478,7 +547,8 @@ function BoothContent() {
          const transactionId = await createTransaction(
            state.transaction.total_price, 
            methodName, 
-           selectedTemplate?.id
+           selectedTemplate?.id,
+           state.transaction.package_type
          );
          
          if (transactionId) {
@@ -506,7 +576,8 @@ function BoothContent() {
     const transactionId = await createTransaction(
       state.transaction.total_price, 
       method.name, 
-      selectedTemplate?.id
+      selectedTemplate?.id,
+      state.transaction.package_type
     );
     
     if (transactionId) {
@@ -538,7 +609,8 @@ function BoothContent() {
         const transactionId = await createTransaction(
           total, 
           state.transaction.payment_method, 
-          selectedTemplate?.id
+          selectedTemplate?.id,
+          state.transaction.package_type
         );
         
         if (transactionId) {
@@ -556,15 +628,45 @@ function BoothContent() {
 
   const handleQuantitySelect = async (quantity: number) => {
     dispatch({ type: "SET_QUANTITY", quantity });
-    const total = pricing.basePrice + quantity * pricing.perPrintPrice;
+    
+    // Use effective pricing based on Event mode
+    const currentPricing = isEventMode ? {
+        ...pricing,
+        price2d: 0,
+        price4r: 0,
+        perPrintPrice2d: 0,
+        perPrintPrice4r: 0
+    } : pricing;
+
+    const currentBasePrice = state.transaction.package_type === "2d" 
+        ? currentPricing.price2d 
+        : (state.transaction.package_type === "4r" ? currentPricing.price4r : currentPricing.basePrice);
+
+    const currentPerPrintPrice = state.transaction.package_type === "2d"
+        ? currentPricing.perPrintPrice2d
+        : currentPricing.perPrintPrice4r;
+
+    const total = currentBasePrice + quantity * currentPerPrintPrice;
     dispatch({ type: "SET_TOTAL_PRICE", total });
     
     // Check if Event mode is active
-    if (state.transaction.payment_method?.toLowerCase() === "event") {
+    // If isEventMode is true, we can treat it as Event payment
+    const isEventPayment = state.transaction.payment_method?.toLowerCase() === "event" || isEventMode;
+
+    if (isEventPayment) {
+        // Ensure payment method is set to Event if not already
+        const eventMethod = paymentMethods.find(m => m.name.toLowerCase() === "event");
+        const methodName = state.transaction.payment_method || eventMethod?.name || "Event";
+        
+        if (!state.transaction.payment_method) {
+            dispatch({ type: "SET_PAYMENT_METHOD", method: methodName });
+        }
+
        const transactionId = await createTransaction(
           total, 
-          state.transaction.payment_method, 
-          selectedTemplate?.id
+          methodName, 
+          selectedTemplate?.id,
+          state.transaction.package_type
        );
         
        if (transactionId) {
@@ -652,7 +754,16 @@ function BoothContent() {
       <div className="flex-1 overflow-hidden p-6 relative">
         <>
           <AnimatePresence mode="wait">
-          {state.step === "payment" && (
+              {state.step === "package" && (
+                <PackageStep
+                  key="package"
+                  pricing={effectivePricing}
+                  onSelectPackage={handlePackageSelect}
+                  onGoToStep={goToStep}
+                />
+              )}
+
+              {state.step === "payment" && (
                 <PaymentStep
                   key="payment"
                   paymentOptions={paymentMethods}
@@ -675,7 +786,7 @@ function BoothContent() {
                 <TemplateStep
                   key="template"
                   templates={templates}
-                  pricing={pricing}
+                  pricing={effectivePricing}
                   selectedTemplate={selectedTemplate}
                   onSelectTemplate={handleTemplateSelect}
                   onGoToStep={goToStep}
@@ -687,7 +798,8 @@ function BoothContent() {
                 <QuantityStep
                   key="quantity"
                   quantity={state.transaction.quantity}
-                  pricing={pricing}
+                  pricing={effectivePricing}
+                  packageType={state.transaction.package_type}
                   onSelectQuantity={handleQuantitySelect}
                   onGoToStep={goToStep}
                 />

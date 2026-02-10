@@ -2,13 +2,10 @@
 
 import { Printer } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCcw, Upload, Trash2 } from "lucide-react";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/client";
 import { Button } from "../../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../../components/ui/card";
-import { Input } from "../../../components/ui/input";
 import { useToast } from "../../../components/ui/toast";
-import Image from "next/image";
 
 type PaymentMethod = {
   id: string;
@@ -17,27 +14,15 @@ type PaymentMethod = {
   is_active: boolean;
 };
 
-type PricingSettings = {
-  id?: string;
-  base_price: number;
-  per_print_price: number;
-  session_countdown: number;
-  home_image_url?: string | null;
-};
-
 export default function AdminSettingsPage() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
-  const [pricing, setPricing] = useState<PricingSettings>({
-    base_price: 20000,
-    per_print_price: 5000,
-    session_countdown: 300,
-  });
-  const [pricingId, setPricingId] = useState<string | null>(null);
-
+  
   // Printer Settings State
   const [printers, setPrinters] = useState<{ Name: string }[]>([]);
   const [selectedPrinter, setSelectedPrinter] = useState<string>("");
   const [loadingPrinters, setLoadingPrinters] = useState(false);
+
+  const { showToast } = useToast();
 
   useEffect(() => {
     const fetchPrinters = async () => {
@@ -90,7 +75,6 @@ export default function AdminSettingsPage() {
     }
   });
   const supabase = supabaseState.client;
-  const { showToast } = useToast();
 
   const loadPaymentMethods = useCallback(async () => {
     if (!supabase) {
@@ -103,135 +87,17 @@ export default function AdminSettingsPage() {
     setPaymentMethods(data ?? []);
   }, [supabase]);
 
-  const [isUploading, setIsUploading] = useState(false);
-
-  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (!supabase || !event.target.files || event.target.files.length === 0) {
-      return;
-    }
-
-    const file = event.target.files[0];
-    setIsUploading(true);
-
-    try {
-      const fileExt = file.name.split(".").pop();
-      const fileName = `home-image-${Date.now()}.${fileExt}`;
-      const filePath = `assets/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("templates")
-        .upload(filePath, file);
-
-      if (uploadError) {
-        throw uploadError;
-      }
-
-      setPricing((prev) => ({
-        ...prev,
-        home_image_url: filePath,
-      }));
-
-      showToast({ variant: "success", message: "Gambar berhasil diupload." });
-    } catch (error) {
-      showToast({
-        variant: "error",
-        message: error instanceof Error ? error.message : "Gagal mengupload gambar",
-      });
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const removeHomeImage = () => {
-    setPricing((prev) => ({
-      ...prev,
-      home_image_url: null,
-    }));
-  };
-
-  const loadPricing = useCallback(async () => {
-    if (!supabase) {
-      return;
-    }
-    // Try with session_countdown
-    const { data, error } = await supabase
-      .from("pricing_settings")
-      .select("id,base_price,per_print_price,session_countdown,home_image_url,updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (error && error.code === "PGRST200") {
-      // Fallback: column missing
-      console.warn("session_countdown or home_image_url column missing in DB");
-      const { data: fallbackData } = await supabase
-        .from("pricing_settings")
-        .select("id,base_price,per_print_price,updated_at")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      
-      if (fallbackData) {
-        setPricing({
-            base_price: Number(fallbackData.base_price),
-            per_print_price: Number(fallbackData.per_print_price),
-            session_countdown: 300,
-            home_image_url: undefined,
-        });
-        setPricingId(fallbackData.id);
-      }
-      return;
-    }
-
-    if (data) {
-      setPricing({
-        base_price: Number(data.base_price),
-        per_print_price: Number(data.per_print_price),
-        session_countdown: data.session_countdown ? Number(data.session_countdown) : 300,
-        home_image_url: data.home_image_url,
-      });
-      setPricingId(data.id);
-    }
-  }, [supabase]);
-
-  // Load preview URL for the image
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    const loadPreview = async () => {
-      if (!supabase || !pricing.home_image_url) {
-        setPreviewUrl(null);
-        return;
-      }
-
-      if (pricing.home_image_url.startsWith("http")) {
-        setPreviewUrl(pricing.home_image_url);
-        return;
-      }
-
-      const { data } = await supabase.storage
-        .from("templates")
-        .createSignedUrl(pricing.home_image_url, 3600);
-      
-      if (data?.signedUrl) {
-        setPreviewUrl(data.signedUrl);
-      }
-    };
-
-    loadPreview();
-  }, [supabase, pricing.home_image_url]);
-
   useEffect(() => {
     const run = async () => {
       if (!supabase) {
         setLoading(false);
         return;
       }
-      await Promise.all([loadPaymentMethods(), loadPricing()]);
+      await loadPaymentMethods();
       setLoading(false);
     };
     run();
-  }, [loadPaymentMethods, loadPricing, supabase]);
+  }, [loadPaymentMethods, supabase]);
 
   useEffect(() => {
     if (supabaseState.error) {
@@ -259,48 +125,6 @@ export default function AdminSettingsPage() {
       variant: "success",
       message: `${method.name} ${next ? "diaktifkan" : "dinonaktifkan"}.`,
     });
-  };
-
-  const savePricing = async () => {
-    if (!supabase) {
-      return;
-    }
-    if (pricingId) {
-      const { error } = await supabase
-        .from("pricing_settings")
-        .update({
-          base_price: pricing.base_price,
-          per_print_price: pricing.per_print_price,
-          session_countdown: pricing.session_countdown,
-          home_image_url: pricing.home_image_url ?? null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", pricingId);
-      if (error) {
-        showToast({ variant: "error", message: error.message });
-        return;
-      }
-      showToast({ variant: "success", message: "Harga dan pengaturan berhasil diperbarui." });
-      return;
-    }
-    const { data, error } = await supabase
-      .from("pricing_settings")
-      .insert({
-        base_price: pricing.base_price,
-        per_print_price: pricing.per_print_price,
-        session_countdown: pricing.session_countdown,
-        home_image_url: pricing.home_image_url,
-      })
-      .select("id")
-      .single();
-    if (error) {
-      showToast({ variant: "error", message: error.message });
-      return;
-    }
-    if (data?.id) {
-      setPricingId(data.id);
-    }
-    showToast({ variant: "success", message: "Harga dan pengaturan berhasil disimpan." });
   };
 
   if (loading) {
@@ -361,152 +185,41 @@ export default function AdminSettingsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Price Manager</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Printer className="h-5 w-5" />
+              Printer Manager
+            </CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-2">
               <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                Harga per sesi
+                Pilih Printer Aktif
               </span>
-              <Input
-                type="number"
-                value={pricing.base_price}
-                onChange={(event) =>
-                  setPricing((prev) => ({
-                    ...prev,
-                    base_price: Number(event.target.value),
-                  }))
-                }
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                Harga per lembar
-              </span>
-              <Input
-                type="number"
-                value={pricing.per_print_price}
-                onChange={(event) =>
-                  setPricing((prev) => ({
-                    ...prev,
-                    per_print_price: Number(event.target.value),
-                  }))
-                }
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                Countdown Sesi (Menit)
-              </span>
-              <Input
-                type="number"
-                value={
-                  pricing.session_countdown === 0
-                    ? ""
-                    : Math.floor(pricing.session_countdown / 60)
-                }
-                onChange={(event) =>
-                  setPricing((prev) => ({
-                    ...prev,
-                    session_countdown:
-                      event.target.value === "" ? 0 : Number(event.target.value) * 60,
-                  }))
-                }
-              />
+              <div className="flex gap-4 items-center">
+                <select
+                  className="flex h-10 w-full max-w-md rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  value={selectedPrinter}
+                  onChange={(e) => setSelectedPrinter(e.target.value)}
+                  disabled={loadingPrinters}
+                >
+                  <option value="">-- Pilih Printer --</option>
+                  {printers.map((p) => (
+                    <option key={p.Name} value={p.Name}>
+                      {p.Name}
+                    </option>
+                  ))}
+                </select>
+                <Button onClick={savePrinterSettings} disabled={loadingPrinters}>
+                  Simpan
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">
-                Waktu maksimal sesi foto sebelum kembali ke halaman awal (Default: 5 menit)
+                Printer ini akan digunakan untuk mencetak foto secara otomatis tanpa popup dialog.
               </p>
             </div>
-
-            <div className="flex flex-col gap-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                Gambar Home Page
-              </span>
-              <div className="flex flex-col gap-4">
-                {previewUrl ? (
-                  <div className="relative aspect-[4/3] w-full max-w-xs overflow-hidden rounded-lg border bg-muted">
-                    <Image
-                      src={previewUrl}
-                      alt="Home Page"
-                      fill
-                      className="object-cover"
-                    />
-                    <Button
-                      variant="destructive"
-                      size="icon"
-                      className="absolute right-2 top-2 h-8 w-8"
-                      onClick={removeHomeImage}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex aspect-[4/3] w-full max-w-xs items-center justify-center rounded-lg border border-dashed bg-muted p-4">
-                    <p className="text-center text-sm text-muted-foreground">
-                      Belum ada gambar
-                    </p>
-                  </div>
-                )}
-                
-                <div className="flex flex-col gap-2">
-                  <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    disabled={isUploading}
-                    className="max-w-xs"
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Format: JPG/PNG. Rasio 4:3 (contoh: 1200x900px).
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <Button onClick={savePricing}>
-              <RefreshCcw className="h-4 w-4" />
-              Simpan Harga & Pengaturan
-            </Button>
           </CardContent>
         </Card>
       </div>
-
-      <Card>
-          <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                  <Printer className="h-5 w-5" />
-                  Printer Manager
-              </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col gap-2">
-                  <span className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
-                      Pilih Printer Aktif
-                  </span>
-                  <div className="flex gap-4 items-center">
-                      <select
-                          className="flex h-10 w-full max-w-md rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                          value={selectedPrinter}
-                          onChange={(e) => setSelectedPrinter(e.target.value)}
-                          disabled={loadingPrinters}
-                      >
-                          <option value="">-- Pilih Printer --</option>
-                          {printers.map((p) => (
-                              <option key={p.Name} value={p.Name}>
-                                  {p.Name}
-                              </option>
-                          ))}
-                      </select>
-                      <Button onClick={savePrinterSettings} disabled={loadingPrinters}>
-                          Simpan
-                      </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                      Printer ini akan digunakan untuk mencetak foto secara otomatis tanpa popup dialog.
-                  </p>
-              </div>
-          </CardContent>
-      </Card>
     </div>
   );
 }

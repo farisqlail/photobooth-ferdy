@@ -54,6 +54,11 @@ const reducer = (state: State, action: Action): State => {
         ...state,
         transaction: { ...state.transaction, email: action.email },
       };
+    case "SET_PACKAGE_TYPE":
+      return {
+        ...state,
+        transaction: { ...state.transaction, package_type: action.packageType },
+      };
     case "RESET":
       return initialState;
     default:

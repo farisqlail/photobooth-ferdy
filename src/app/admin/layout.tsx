@@ -14,12 +14,14 @@ import {
   Image as ImageIcon,
   LogOut,
   Ticket,
+  Banknote,
 } from "lucide-react";
 import { Button } from "../../components/ui/button";
 
 const navItems = [
   { label: "Overview", icon: Gauge, href: "/admin", roles: ['superadmin'] },
   { label: "Templates", icon: ImageIcon, href: "/admin/templates", roles: ['superadmin'] },
+  { label: "Pricing", icon: Banknote, href: "/admin/pricing", roles: ['superadmin'] },
   { label: "Vouchers", icon: Ticket, href: "/admin/vouchers", roles: ['superadmin', 'operator'] },
   { label: "Users", icon: Users, href: "/admin/users", roles: ['superadmin'] },
   { label: "Settings", icon: Settings, href: "/admin/settings", roles: ['superadmin'] },
