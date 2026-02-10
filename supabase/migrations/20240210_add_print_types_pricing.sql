@@ -1,0 +1,6 @@
+ALTER TABLE pricing_settings 
+ADD COLUMN IF NOT EXISTS price_2d numeric DEFAULT 20000,
+ADD COLUMN IF NOT EXISTS price_4r numeric DEFAULT 20000;
+
+ALTER TABLE transactions
+ADD COLUMN IF NOT EXISTS package_type text DEFAULT '4r';

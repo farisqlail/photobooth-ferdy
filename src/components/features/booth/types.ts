@@ -1,5 +1,6 @@
 export type Step =
   | "idle"
+  | "package"
   | "payment"
   | "noncash"
   | "template"
@@ -19,6 +20,7 @@ export type TransactionData = {
   photo_url?: string;
   quantity: number;
   email?: string;
+  package_type?: "2d" | "4r";
 };
 
 export type State = {
@@ -36,6 +38,7 @@ export type Action =
   | { type: "SET_TRANSACTION_ID"; id: string }
   | { type: "SET_PHOTO_URL"; url: string }
   | { type: "SET_EMAIL"; email: string }
+  | { type: "SET_PACKAGE_TYPE"; packageType: "2d" | "4r" }
   | { type: "RESET" };
 
 export type PaymentMethod = {
@@ -50,6 +53,7 @@ export type TemplateOption = {
   name: string;
   file_path: string;
   url: string;
+  type?: "2d" | "4r";
   slots?: number;
   photo_x?: number;
   photo_y?: number;

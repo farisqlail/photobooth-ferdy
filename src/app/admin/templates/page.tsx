@@ -27,6 +27,7 @@ type Template = {
   name: string;
   file_path: string;
   url: string;
+  type?: "2d" | "4r";
   photo_x: number;
   photo_y: number;
   photo_width: number;
@@ -48,6 +49,7 @@ export default function AdminTemplatesPage() {
   const [containerWidth, setContainerWidth] = useState(0);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState("");
+  const [templateType, setTemplateType] = useState<"2d" | "4r">("4r");
   const [interaction, setInteraction] = useState<{
     type: "resize" | "drag";
     id: string;
@@ -183,7 +185,7 @@ export default function AdminTemplatesPage() {
     }
     const { data } = await supabase
       .from("templates")
-      .select("id,name,file_path,created_at,photo_x,photo_y,photo_width,photo_height,slots_config")
+      .select("id,name,file_path,created_at,photo_x,photo_y,photo_width,photo_height,slots_config,type")
       .order("created_at", { ascending: false });
     const mapped =
       (await Promise.all(
@@ -200,6 +202,7 @@ export default function AdminTemplatesPage() {
               name: template.name,
               file_path: template.file_path,
               url: template.file_path,
+              type: template.type as "2d" | "4r" | undefined,
               photo_x: template.photo_x,
               photo_y: template.photo_y,
               photo_width: template.photo_width,
@@ -215,6 +218,7 @@ export default function AdminTemplatesPage() {
             name: template.name,
             file_path: template.file_path,
             url: signedData?.signedUrl ?? "",
+            type: template.type as "2d" | "4r" | undefined,
             photo_x: template.photo_x,
             photo_y: template.photo_y,
             photo_width: template.photo_width,
@@ -263,6 +267,7 @@ export default function AdminTemplatesPage() {
       formData.append("file", selectedFile);
     }
     formData.append("name", templateName || (selectedFile ? selectedFile.name : "Template"));
+    formData.append("type", templateType);
 
     // Calculate percentages for slots
     const processedSlots = slots.map((slot) => {
@@ -310,6 +315,7 @@ export default function AdminTemplatesPage() {
   const startEdit = (template: Template) => {
     setEditingTemplateId(template.id);
     setTemplateName(template.name);
+    setTemplateType(template.type || "4r");
     setPreviewUrl(template.url);
     
     // Fallback for templates without slots_config (legacy support)
@@ -344,6 +350,7 @@ export default function AdminTemplatesPage() {
   const cancelEdit = () => {
     setEditingTemplateId(null);
     setTemplateName("");
+    setTemplateType("4r");
     setSelectedFile(null);
     setPreviewUrl(null);
     setPreviewSize(null);
@@ -435,12 +442,22 @@ export default function AdminTemplatesPage() {
             </Button>
             
             {(previewUrl || editingTemplateId) && (
-               <Input 
-                 placeholder="Nama Template" 
-                 value={templateName} 
-                 onChange={e => setTemplateName(e.target.value)}
-                 className="w-48"
-               />
+               <>
+                 <Input 
+                   placeholder="Nama Template" 
+                   value={templateName} 
+                   onChange={e => setTemplateName(e.target.value)}
+                   className="w-48"
+                 />
+                 <select 
+                   className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                   value={templateType}
+                   onChange={(e) => setTemplateType(e.target.value as "2d" | "4r")}
+                 >
+                   <option value="4r">Standard (4R)</option>
+                   <option value="2d">2D Cutout</option>
+                 </select>
+               </>
             )}
 
             <Button

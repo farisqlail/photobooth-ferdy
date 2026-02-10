@@ -71,6 +71,7 @@ export async function POST(request: Request) {
   const photo_y = Number(formData.get("photo_y") ?? 0);
   const photo_width = Number(formData.get("photo_width") ?? 0);
   const photo_height = Number(formData.get("photo_height") ?? 0);
+  const type = formData.get("type");
   
   const slots_config_str = formData.get("slots_config");
   let slots_config = [];
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
     photo_width,
     photo_height,
     slots_config,
+    type: String(type || '4r'),
   });
   if (insert.error) {
     return NextResponse.json({ message: insert.error.message }, { status: 400 });
@@ -115,6 +117,7 @@ export async function PUT(request: Request) {
 
   const file = formData.get("file");
   const name = formData.get("name");
+  const type = formData.get("type");
   
   const slots_config_str = formData.get("slots_config");
   let slots_config = [];
@@ -129,6 +132,7 @@ export async function PUT(request: Request) {
   };
 
   if (name) updates.name = name;
+  if (type) updates.type = type;
   
   if (slots_config.length > 0) {
       updates.photo_x = slots_config[0].x;
