@@ -53,6 +53,7 @@ export type TemplateOption = {
   name: string;
   file_path: string;
   url: string;
+  type?: "2d" | "4r";
   slots?: number;
   photo_x?: number;
   photo_y?: number;

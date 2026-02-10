@@ -25,12 +25,17 @@ export function TemplateStep({
   onGoToStep,
 }: TemplateStepProps) {
 
-  // Auto-select first template if none selected
+  // Auto-select first template if none selected or selected not in list
   useEffect(() => {
-    if (!selectedTemplate && templates.length > 0) {
-      onSelectTemplate(templates[0]);
+    if (templates.length > 0) {
+      const isSelectedInList = selectedTemplate && templates.some(t => t.id === selectedTemplate.id);
+      if (!selectedTemplate || !isSelectedInList) {
+        onSelectTemplate(templates[0]);
+      }
     }
   }, [templates, selectedTemplate, onSelectTemplate]);
+
+  const packageType = selectedTemplate?.type || "4r";
 
   return (
     <motion.div
@@ -75,7 +80,8 @@ export function TemplateStep({
                       key={template.id}
                       onClick={() => onSelectTemplate(template)}
                       className={cn(
-                        "group relative aspect-[3/4] w-full overflow-hidden rounded-2xl border-2 transition-all duration-300 bg-zinc-50",
+                        "group relative w-full overflow-hidden rounded-2xl border-2 transition-all duration-300 bg-zinc-50",
+                        template.type === '2d' ? 'aspect-square' : 'aspect-[3/4]',
                         isSelected 
                           ? "border-black ring-4 ring-black/10 shadow-xl scale-[0.98]" 
                           : "border-zinc-100 hover:border-zinc-300 hover:shadow-lg"
@@ -112,14 +118,16 @@ export function TemplateStep({
            
            {selectedTemplate ? (
              <div className="relative h-full w-full p-6 flex items-center justify-center">
-               <Image 
-                  src={selectedTemplate.url} 
-                  alt="Preview" 
-                  fill 
-                  className="object-contain drop-shadow-2xl"
-                  unoptimized
-                  priority
-               />
+               <div className={cn("relative h-full w-full", packageType === '2d' ? "aspect-square" : "aspect-[3/4]")}>
+                <Image 
+                    src={selectedTemplate.url} 
+                    alt="Preview" 
+                    fill 
+                    className="object-contain drop-shadow-2xl"
+                    unoptimized
+                    priority
+                />
+               </div>
              </div>
            ) : (
              <div className="flex h-full items-center justify-center text-zinc-500">

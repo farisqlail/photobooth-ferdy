@@ -142,7 +142,7 @@ export function useBoothData() {
     }
     const { data } = await supabase
       .from("templates")
-      .select("id,name,file_path,created_at,photo_x,photo_y,photo_width,photo_height,slots_config")
+      .select("id,name,file_path,created_at,photo_x,photo_y,photo_width,photo_height,slots_config,type")
       .order("created_at", { ascending: false });
     
     const mapped =
@@ -160,6 +160,7 @@ export function useBoothData() {
               name: template.name,
               file_path: template.file_path,
               url: template.file_path,
+              type: template.type as "2d" | "4r" | undefined,
               slots: slots_config.length > 0 ? slots_config.length : 1,
               photo_x: template.photo_x,
               photo_y: template.photo_y,
@@ -176,6 +177,7 @@ export function useBoothData() {
             name: template.name,
             file_path: template.file_path,
             url: signedData?.signedUrl ?? "",
+            type: template.type as "2d" | "4r" | undefined,
             slots: slots_config.length > 0 ? slots_config.length : 1,
             photo_x: template.photo_x,
             photo_y: template.photo_y,

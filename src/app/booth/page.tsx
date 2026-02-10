@@ -90,7 +90,8 @@ function BoothContent() {
   } = useImageProcessing(supabase);
 
   // --- Local State ---
-  const [selectedTemplate, setSelectedTemplate] = useState<TemplateOption | null>(null);
+  // Derived state for selectedTemplate is moved below hooks to access state/templates
+  
   const [templateImage, setTemplateImage] = useState<HTMLImageElement | null>(null);
   const [retakeIndex, setRetakeIndex] = useState<number | null>(null);
   const [selectedFilter, setSelectedFilter] = useState(filters[0].value);
@@ -114,6 +115,22 @@ function BoothContent() {
   const isEventMode = useMemo(() => {
     return paymentMethods.some((m) => m.name.toLowerCase() === "event" && m.is_active);
   }, [paymentMethods]);
+
+  const selectedTemplate = useMemo(() => {
+    if (!state.transaction.template_id) return null;
+    const tmpl = templates.find((t) => t.id === state.transaction.template_id);
+    if (!tmpl) return null;
+    
+    // Check if template type matches current package type
+    const currentPackage = state.transaction.package_type || "4r";
+    const templateType = tmpl.type || "4r";
+    
+    if (templateType !== currentPackage) return null;
+    
+    return tmpl;
+  }, [templates, state.transaction.template_id, state.transaction.package_type]);
+
+  const setSelectedTemplate = useCallback((_: any) => {}, []);
 
   const effectivePricing = useMemo(() => {
     if (isEventMode) {
@@ -142,7 +159,7 @@ function BoothContent() {
   const resetFlow = useCallback(() => {
     clearFinishTimer();
     dispatch({ type: "RESET" });
-    setSelectedTemplate(null);
+    // setSelectedTemplate(null); // No longer needed as it is derived from state
     setTemplateImage(null);
     setRetakeIndex(null);
     setSelectedFilter(filters[0].value);
@@ -341,7 +358,19 @@ function BoothContent() {
 
   // --- Handlers ---
 
+  const filteredTemplates = useMemo(() => {
+    return templates.filter((t) => {
+      const currentPackage = state.transaction.package_type || "4r";
+      const templateType = t.type || "4r";
+      return templateType === currentPackage;
+    });
+  }, [templates, state.transaction.package_type]);
+
   const handlePackageSelect = async (packageType: "2d" | "4r") => {
+    // If switching package type, clear selected template if it doesn't match
+    if (state.transaction.package_type && state.transaction.package_type !== packageType) {
+       dispatch({ type: "SET_TEMPLATE", templateId: "" });
+    }
     dispatch({ type: "SET_PACKAGE_TYPE", packageType });
     await goToStep("template");
   };
@@ -373,7 +402,7 @@ function BoothContent() {
         
         if (templates && templates.length > 0) {
           const first = templates[0];
-          setSelectedTemplate(first);
+          // setSelectedTemplate(first); // No longer needed
           dispatch({ type: "SET_TEMPLATE", templateId: first.id });
           loadImage(first.url).then(setTemplateImage).catch(e => console.error("Failed to preload template image", e));
         }
@@ -384,7 +413,7 @@ function BoothContent() {
 
       if (templates && templates.length > 0) {
         const first = templates[0];
-        setSelectedTemplate(first);
+        // setSelectedTemplate(first); // No longer needed
         dispatch({ type: "SET_TEMPLATE", templateId: first.id });
         loadImage(first.url).then(setTemplateImage).catch(e => console.error("Failed to preload template image", e));
       }
@@ -785,7 +814,7 @@ function BoothContent() {
               {state.step === "template" && (
                 <TemplateStep
                   key="template"
-                  templates={templates}
+                  templates={filteredTemplates}
                   pricing={effectivePricing}
                   selectedTemplate={selectedTemplate}
                   onSelectTemplate={handleTemplateSelect}
