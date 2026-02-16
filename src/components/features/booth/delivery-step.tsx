@@ -51,38 +51,34 @@ export function DeliveryStep({
   
   const hasPrintedRef = useRef(false);
 
-  // Auto print when storageUrl is ready
+  // Auto print when storageUrl is ready (silent via server-side print only)
   useEffect(() => {
     if (storageUrl && !hasPrintedRef.current) {
-        hasPrintedRef.current = true;
-        
-        const printImage = async () => {
-             console.log("Attempting server print...");
-             
-             // Try server-side print first
-             try {
-                 const res = await fetch('/api/print', {
-                     method: 'POST',
-                     headers: { 'Content-Type': 'application/json' },
-                     body: JSON.stringify({ url: storageUrl })
-                 });
-                 if (res.ok) {
-                     console.log("Printed via server");
-                     return; // Success, do NOT window.print()
-                 }
-             } catch (e) {
-                 console.error("Server print failed", e);
-             }
+      hasPrintedRef.current = true;
 
-             // Only fallback to window.print() if server print explicitly failed
-             // And maybe we want to disable this fallback if the user REALLY doesn't want popups?
-             // But for reliability, let's keep it but ensure it only runs on failure.
-             console.warn("Server print failed, falling back to window.print()");
-             window.print();
-        };
+      const printImage = async () => {
+        console.log("Attempting server print...");
 
-        // Execute print
-        printImage();
+        try {
+          const res = await fetch("/api/print", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: storageUrl }),
+          });
+
+          if (res.ok) {
+            console.log("Printed via server");
+            return;
+          }
+
+          const errorText = await res.text();
+          console.error("Server print returned non-OK status", res.status, errorText);
+        } catch (e) {
+          console.error("Server print failed", e);
+        }
+      };
+
+      printImage();
     }
   }, [storageUrl]);
 

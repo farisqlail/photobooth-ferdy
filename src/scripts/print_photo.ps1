@@ -13,23 +13,16 @@ $pd.Add_PrintPage({
 
     $img = [System.Drawing.Image]::FromFile($ImagePath)
     
-    # Get printable area
-    $printableArea = $e.MarginBounds
-    # If margins are huge (default), use PageBounds (full page) for photo printing
-    if ($e.PageSettings.HardMarginX -lt 10 -and $e.PageSettings.HardMarginY -lt 10) {
-         # Assume photo printer, try to use full page
-         $printableArea = $e.PageBounds
-    }
+    # Always use full page bounds for photo printing so large paper
+    # is filled as much as possible while keeping aspect ratio.
+    $printableArea = $e.PageBounds
 
     # Determine orientation
     if ($img.Width -gt $img.Height) {
         $e.PageSettings.Landscape = $true
-        # Swap printable area dimensions for calculation if page wasn't already landscape
-        # (Note: changing PageSettings inside PrintPage might be too late for some drivers, 
-        # but usually works for the drawing context)
     }
 
-    # Calculate Scale to FIT
+    # Calculate Scale to FIT (preserve aspect ratio)
     $ratioX = $printableArea.Width / $img.Width
     $ratioY = $printableArea.Height / $img.Height
     $ratio = [Math]::Min($ratioX, $ratioY)
@@ -37,17 +30,15 @@ $pd.Add_PrintPage({
     $newWidth = $img.Width * $ratio
     $newHeight = $img.Height * $ratio
 
-    # Center the image
+    # Center the image on the page
     $posX = $printableArea.Left + ($printableArea.Width - $newWidth) / 2
     $posY = $printableArea.Top + ($printableArea.Height - $newHeight) / 2
 
-    # Draw
     $e.Graphics.DrawImage($img, $posX, $posY, $newWidth, $newHeight)
     
     $img.Dispose()
 })
 
-# Handle potential orientation set before print
 $tempImg = [System.Drawing.Image]::FromFile($ImagePath)
 if ($tempImg.Width -gt $tempImg.Height) {
     $pd.DefaultPageSettings.Landscape = $true

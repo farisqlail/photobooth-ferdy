@@ -71,7 +71,7 @@ export function usePhotoSession() {
       return;
     }
     await new Promise<void>((resolve) => {
-      let value = 3;
+      let value = 5;
       setCountdown(value);
       countdownTimerRef.current = window.setInterval(() => {
         value -= 1;
