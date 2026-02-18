@@ -67,13 +67,22 @@ export function useImageProcessing(supabase: SupabaseClient | null) {
       return null;
     }
 
+    let baseTemplateImage: HTMLImageElement | null = templateImage;
+    if (selectedTemplate) {
+      try {
+        baseTemplateImage = await loadImage(selectedTemplate.url);
+      } catch (error) {
+        console.error("Failed to load selected template image", error);
+      }
+    }
+
     const canvas = document.createElement("canvas");
     let width = 0;
     let height = 0;
     
-    if (templateImage) {
-      width = templateImage.naturalWidth;
-      height = templateImage.naturalHeight;
+    if (baseTemplateImage) {
+      width = baseTemplateImage.naturalWidth;
+      height = baseTemplateImage.naturalHeight;
     } else {
       const base = await loadImage(capturedPhotos[0]);
       width = base.naturalWidth;
@@ -149,8 +158,8 @@ export function useImageProcessing(supabase: SupabaseClient | null) {
     }
 
     ctx.filter = "none";
-    if (templateImage) {
-      ctx.drawImage(templateImage, 0, 0, canvas.width, canvas.height);
+    if (baseTemplateImage) {
+      ctx.drawImage(baseTemplateImage, 0, 0, canvas.width, canvas.height);
     }
     const dataUrl = canvas.toDataURL("image/png");
     setFinalPreviewUrl(dataUrl);

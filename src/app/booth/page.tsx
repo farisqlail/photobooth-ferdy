@@ -356,7 +356,20 @@ function BoothContent() {
     }
   }, [state.step]);
 
-  // --- Handlers ---
+  useEffect(() => {
+    const toggleKeyboard = async () => {
+      try {
+        const endpoint = isVoucherDialogOpen
+          ? "/api/system/keyboard/show"
+          : "/api/system/keyboard/hide";
+        await fetch(endpoint, { method: "POST" });
+      } catch (error) {
+        console.error("Failed to toggle touch keyboard", error);
+      }
+    };
+
+    toggleKeyboard();
+  }, [isVoucherDialogOpen]);
 
   const filteredTemplates = useMemo(() => {
     return templates.filter((t) => {
@@ -718,7 +731,7 @@ function BoothContent() {
     }
     await goToStep("session");
   };
-
+ 
   const handleRetakePhotoRequest = (index: number) => {
     setRetakeIndex(index);
     // Reset assets on retake as photos will change
@@ -729,12 +742,12 @@ function BoothContent() {
     setGifUrl(null);
     goToStep("session");
   };
-
+ 
   const handleCancelRetake = () => {
     setRetakeIndex(null);
     goToStep("filter");
   };
-
+ 
   const handleStartPhotoSession = async () => {
     if (retakeIndex !== null) {
       await retakePhoto(retakeIndex, selectedTemplate, templateImage, async () => {
@@ -747,7 +760,7 @@ function BoothContent() {
       });
     }
   };
-
+ 
   const handleGenerateFinalImage = async () => {
     try {
       const result = await generateFinalImage({
@@ -771,7 +784,7 @@ function BoothContent() {
       // Optional: Add UI feedback for error here
     }
   };
-
+ 
   const handleSetEmail = (email: string) => {
     dispatch({ type: "SET_EMAIL", email });
   };

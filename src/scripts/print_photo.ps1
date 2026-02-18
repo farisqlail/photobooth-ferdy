@@ -8,6 +8,23 @@ Add-Type -AssemblyName System.Drawing
 $pd = New-Object System.Drawing.Printing.PrintDocument
 $pd.PrinterSettings.PrinterName = $PrinterName
 
+# Set default paper size to 4R (4x6 inch) and remove margins
+try {
+    $paperSize = $pd.PrinterSettings.PaperSizes |
+        Where-Object { $_.PaperName -match "4R" -or $_.PaperName -match "4x6" } |
+        Select-Object -First 1
+
+    if (-not $paperSize) {
+        # 4x6 inch in hundredths of an inch (System.Drawing unit)
+        $paperSize = New-Object System.Drawing.Printing.PaperSize("4R", 400, 600)
+    }
+
+    $pd.DefaultPageSettings.PaperSize = $paperSize
+    $pd.DefaultPageSettings.Margins = New-Object System.Drawing.Printing.Margins(0, 0, 0, 0)
+} catch {
+    # If anything fails, fall back to driver defaults
+}
+
 $pd.Add_PrintPage({
     param($sender, $e)
 

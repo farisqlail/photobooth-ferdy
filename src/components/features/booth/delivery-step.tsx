@@ -97,7 +97,6 @@ export function DeliveryStep({
     }
   }, [transaction.id, localQrUrl]);
 
-
   const handleSendEmail = async () => {
     if (!transaction.email) {
         setEmailStatus('error');
@@ -166,6 +165,60 @@ export function DeliveryStep({
     }
   };
 
+  const handlePreviewPrint = () => {
+    if (!finalPreviewUrl) return;
+
+    const escapedSrc = finalPreviewUrl
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Preview 4R</title>
+          <style>
+            @page {
+              size: 4in 6in;
+              margin: 0;
+            }
+            html, body {
+              margin: 0;
+              padding: 0;
+              height: 100%;
+              background: #ffffff;
+            }
+            body {
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+            img {
+              width: 100%;
+              height: 100%;
+              object-fit: contain;
+              display: block;
+            }
+          </style>
+        </head>
+        <body>
+          <img src="${escapedSrc}" alt="Preview 4R" />
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+
+    const win = window.open(url, "_blank", "noopener,noreferrer");
+    if (!win) {
+      window.location.href = url;
+    }
+  };
+
   return (
     <motion.div
       key="delivery"
@@ -179,13 +232,13 @@ export function DeliveryStep({
       <div className="relative flex-1 w-full overflow-hidden rounded-[2rem] bg-zinc-900/50 p-8 shadow-xl border border-zinc-800 flex items-center justify-center backdrop-blur-sm">
           {finalPreviewUrl ? (
              <div className="relative h-full w-full flex items-center justify-center">
-                 <div 
+                <div 
                     className="print-area"
                     style={{
                         position: "relative",
                         height: "100%",
                         width: "auto",
-                        aspectRatio: "3/4", // Assuming standard photo strip/print ratio, adjust if needed based on actual image
+                        aspectRatio: "2/3",
                         boxShadow: "0 0 50px -12px rgba(0, 0, 0, 0.5)"
                     }}
                 >
@@ -300,12 +353,20 @@ export function DeliveryStep({
           {/* Bottom: Action Buttons */}
           <div className="flex flex-col gap-3 mt-auto pt-4 border-t border-zinc-900">
             <Button
-                size="lg"
-                className="w-full h-14 rounded-full bg-white text-black hover:bg-zinc-200 font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] transition-all hover:scale-[1.02]"
-                onClick={() => onGoToStep("finish")}
+              size="lg"
+              className="w-full h-14 rounded-full bg-white text-black hover:bg-zinc-200 font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.2)] hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] transition-all hover:scale-[1.02]"
+              onClick={() => onGoToStep("finish")}
             >
-                Selesai
+              Selesai
             </Button>
+            {/* <Button
+              variant="outline"
+              className="w-full h-10 rounded-full border-zinc-700 text-zinc-200 hover:bg-zinc-900 hover:text-white text-sm"
+              onClick={handlePreviewPrint}
+              disabled={!finalPreviewUrl}
+            >
+              Preview 4R di Tab Baru
+            </Button> */}
           </div>
 
       </div>
