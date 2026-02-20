@@ -53,7 +53,7 @@ export function DeliveryStep({
   const hasPrintedRef = useRef(false);
   const printRef = useRef<HTMLDivElement | null>(null);
 
-  const handlePrint = useReactToPrint({
+  const handleReactToPrint = useReactToPrint({
     contentRef: printRef,
     pageStyle: `
       @page {
@@ -74,11 +74,31 @@ export function DeliveryStep({
   });
 
   useEffect(() => {
-    if (finalPreviewUrl && !hasPrintedRef.current) {
+    if (storageUrl && !hasPrintedRef.current) {
       hasPrintedRef.current = true;
-      handlePrint();
+
+      const copies = Math.max(transaction.quantity || 1, 1);
+
+      const printImage = async () => {
+        try {
+          const res = await fetch("/api/print", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: storageUrl, copies }),
+          });
+
+          if (!res.ok) {
+            const errorText = await res.text();
+            console.error("Server print returned non-OK status", res.status, errorText);
+          }
+        } catch (e) {
+          console.error("Server print failed", e);
+        }
+      };
+
+      printImage();
     }
-  }, [finalPreviewUrl, handlePrint]);
+  }, [storageUrl, transaction.quantity]);
 
   // Format session time
   const formatTime = (seconds: number) => {
@@ -304,14 +324,14 @@ export function DeliveryStep({
             >
               Selesai
             </Button>
-            {/* <Button
+            <Button
               variant="outline"
               className="w-full h-10 rounded-full border-zinc-700 text-zinc-200 hover:bg-zinc-900 hover:text-white text-sm"
-              onClick={handlePreviewPrint}
+              onClick={() => handleReactToPrint()}
               disabled={!finalPreviewUrl}
             >
-              Preview 4R di Tab Baru
-            </Button> */}
+              Cetak manual 4R (react-to-print)
+            </Button>
           </div>
 
       </div>

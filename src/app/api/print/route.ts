@@ -8,7 +8,7 @@ const CONFIG_FILE = path.join(process.cwd(), "printer-settings.json");
  
 export async function POST(request: Request) {
   try {
-    const { url } = await request.json();
+    const { url, copies } = await request.json();
  
     let printerName: string | null = null;
     try {
@@ -64,6 +64,7 @@ export async function POST(request: Request) {
  
     await print(filePath, {
       printer: printerName,
+      copies: typeof copies === "number" && copies > 0 ? copies : 1,
     });
  
     setTimeout(() => {
