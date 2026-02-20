@@ -8,6 +8,7 @@ import { useEffect, useState, useRef } from "react";
 import { Step, TransactionData } from "./types";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { cn } from "@/lib/utils";
+import { useReactToPrint } from "react-to-print";
 
 interface DeliveryStepProps {
   finalPreviewUrl: string | null;
@@ -50,37 +51,34 @@ export function DeliveryStep({
   const [emailErrorMessage, setEmailErrorMessage] = useState<string>("");
   
   const hasPrintedRef = useRef(false);
+  const printRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto print when storageUrl is ready (silent via server-side print only)
+  const handlePrint = useReactToPrint({
+    contentRef: printRef,
+    pageStyle: `
+      @page {
+        size: 4in 6in;
+        margin: 0;
+      }
+      html, body, #__next {
+        height: 100%;
+      }
+      body {
+        margin: 0;
+      }
+      .print-area {
+        width: 100%;
+        height: 100%;
+      }
+    `,
+  });
+
   useEffect(() => {
-    if (storageUrl && !hasPrintedRef.current) {
+    if (finalPreviewUrl && !hasPrintedRef.current) {
       hasPrintedRef.current = true;
-
-      const printImage = async () => {
-        console.log("Attempting server print...");
-
-        try {
-          const res = await fetch("/api/print", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: storageUrl }),
-          });
-
-          if (res.ok) {
-            console.log("Printed via server");
-            return;
-          }
-
-          const errorText = await res.text();
-          console.error("Server print returned non-OK status", res.status, errorText);
-        } catch (e) {
-          console.error("Server print failed", e);
-        }
-      };
-
-      printImage();
+      handlePrint();
     }
-  }, [storageUrl]);
+  }, [finalPreviewUrl, handlePrint]);
 
   // Format session time
   const formatTime = (seconds: number) => {
@@ -165,60 +163,6 @@ export function DeliveryStep({
     }
   };
 
-  const handlePreviewPrint = () => {
-    if (!finalPreviewUrl) return;
-
-    const escapedSrc = finalPreviewUrl
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>Preview 4R</title>
-          <style>
-            @page {
-              size: 4in 6in;
-              margin: 0;
-            }
-            html, body {
-              margin: 0;
-              padding: 0;
-              height: 100%;
-              background: #ffffff;
-            }
-            body {
-              display: flex;
-              align-items: center;
-              justify-content: center;
-            }
-            img {
-              width: 100%;
-              height: 100%;
-              object-fit: contain;
-              display: block;
-            }
-          </style>
-        </head>
-        <body>
-          <img src="${escapedSrc}" alt="Preview 4R" />
-        </body>
-      </html>
-    `;
-
-    const blob = new Blob([html], { type: "text/html" });
-    const url = URL.createObjectURL(blob);
-
-    const win = window.open(url, "_blank", "noopener,noreferrer");
-    if (!win) {
-      window.location.href = url;
-    }
-  };
-
   return (
     <motion.div
       key="delivery"
@@ -234,6 +178,7 @@ export function DeliveryStep({
              <div className="relative h-full w-full flex items-center justify-center">
                 <div 
                     className="print-area"
+                    ref={printRef}
                     style={{
                         position: "relative",
                         height: "100%",
